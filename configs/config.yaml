@@ -1,0 +1,51 @@
+data:
+  ciciot:
+    raw_path: data/raw/ciciot.csv
+    processed_dir: data/processed/ciciot
+    scaler_path: data/processed/ciciot_scaler.pkl
+    features:
+      - flow_duration
+      - Rate
+      - Number
+      - IAT
+      - Tot size
+    label_col: label
+    normal_label: BenignTraffic
+  intel:
+    raw_path: data/raw/intel_berkeley.csv
+    processed_dir: data/processed/intel
+    scaler_path: data/processed/intel_scaler.pkl
+    features:
+      - temperature
+      - humidity
+      - light
+      - voltage
+    label_col: null  # no explicit attack labels
+
+model:
+  window_size: 64
+  hidden_size: 128
+  bottleneck_size: 32
+  num_layers: 1
+  dropout: 0.0
+
+training:
+  epochs: 50
+  batch_size: 64
+  learning_rate: 0.001
+  val_split: 0.1
+  early_stopping_patience: 5
+
+threshold:
+  ciciot_percentile: 99
+  intel_percentile: 99.5
+
+saved_models:
+  ciciot_model: saved_models/ciciot_model.pt
+  ciciot_threshold: saved_models/ciciot_threshold.json
+  intel_model: saved_models/intel_model.pt
+  intel_threshold: saved_models/intel_threshold.json
+
+gateway:
+  log_dir: logs/
+  chunk_size: 512

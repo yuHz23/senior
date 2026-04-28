@@ -1,0 +1,9 @@
+data/raw/
+data/processed/
+saved_models/
+logs/
+__pycache__/
+*.pyc
+*.pkl
+.ipynb_checkpoints/
+.env

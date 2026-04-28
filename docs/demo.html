@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IoT Anomaly Detection Demo — Ngo Hoang Huy</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0f1117;--card:#1a1d27;--card2:#12162b;--border:#2d3148;
+  --blue:#4f8ef7;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
+  --purple:#a855f7;--cyan:#06b6d4;--text:#e2e8f0;--muted:#94a3b8;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+/* HEADER */
+.hdr{background:linear-gradient(135deg,#1e1b4b,#0f1117);border-bottom:1px solid var(--border);
+  padding:11px 24px;display:flex;align-items:center;gap:14px;flex-shrink:0;}
+.hdr-logo{width:36px;height:36px;background:var(--blue);border-radius:9px;display:flex;
+  align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.hdr-title{font-size:15px;font-weight:700;color:#fff;}
+.hdr-sub{font-size:10px;color:var(--muted);}
+.badge{margin-left:auto;background:#1e3a5f;border:1px solid var(--blue);color:var(--blue);
+  padding:2px 10px;border-radius:20px;font-size:10px;white-space:nowrap;}
+
+/* PIPELINE */
+.pipe-wrap{background:var(--card);border-bottom:1px solid var(--border);padding:12px 24px 0;flex-shrink:0;}
+.pipe-row{display:flex;align-items:center;overflow-x:auto;padding-bottom:0;}
+.ps{display:flex;flex-direction:column;align-items:center;min-width:100px;padding:8px 6px;
+  background:var(--card2);border:2px solid var(--border);border-radius:10px;
+  cursor:pointer;transition:all .2s;position:relative;flex-shrink:0;}
+.ps:hover{border-color:var(--blue);transform:translateY(-2px);box-shadow:0 4px 14px rgba(79,142,247,.25);}
+.ps.active{border-color:var(--blue);background:#1a2550;animation:pulse 1s infinite;}
+.ps.done{border-color:var(--green);}
+.ps.flash{border-color:var(--red);background:#2d0f0f;}
+.ps.sel{border-color:var(--yellow);box-shadow:0 0 0 3px rgba(245,158,11,.2);}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(79,142,247,.5)}50%{box-shadow:0 0 0 7px rgba(79,142,247,0)}}
+.ps-ico{font-size:18px;margin-bottom:3px;}
+.ps-lbl{font-size:10px;font-weight:700;text-align:center;}
+.ps-sub{font-size:9px;color:var(--muted);text-align:center;margin-top:1px;}
+.ps-num{position:absolute;top:-7px;left:50%;transform:translateX(-50%);
+  background:var(--border);color:var(--muted);font-size:8px;font-weight:700;
+  padding:1px 5px;border-radius:6px;}
+.ps.active .ps-num{background:var(--blue);color:#fff;}
+.ps.done   .ps-num{background:var(--green);color:#fff;}
+.ps.flash  .ps-num{background:var(--red);color:#fff;}
+.ps.sel    .ps-num{background:var(--yellow);color:#000;}
+.pa{color:var(--border);font-size:14px;padding:0 2px;flex-shrink:0;transition:color .3s;}
+.pa.lit{color:var(--blue);}
+.click-hint{font-size:9px;color:var(--muted);text-align:center;padding:3px 0 8px;opacity:.5;}
+
+/* DETAIL PANEL */
+.detail-panel{background:linear-gradient(135deg,#12162b,#0f1117);border-bottom:1px solid var(--border);
+  max-height:0;overflow:hidden;transition:max-height .32s ease;flex-shrink:0;}
+.detail-panel.open{max-height:250px;}
+.dp-inner{padding:12px 24px;}
+.dp-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.dp-icon{font-size:26px;}
+.dp-title{font-size:13px;font-weight:700;color:#fff;}
+.dp-step{font-size:10px;color:var(--blue);margin-top:1px;}
+.dp-close{margin-left:auto;background:none;border:1px solid var(--border);color:var(--muted);
+  border-radius:5px;padding:3px 9px;cursor:pointer;font-size:11px;}
+.dp-close:hover{border-color:var(--red);color:var(--red);}
+.dp-body{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.dp-body p{font-size:11px;line-height:1.7;color:var(--muted);}
+.dp-body p strong{color:var(--text);}
+.dp-vis{background:var(--card2);border:1px solid var(--border);border-radius:7px;padding:10px;}
+.dp-vis-t{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
+.cl{font-family:monospace;font-size:10px;color:#86efac;background:#0f2010;padding:2px 7px;border-radius:3px;margin:1px 0;}
+.df{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.db{background:var(--card);border:1px solid var(--border);border-radius:5px;
+  padding:3px 8px;font-size:10px;font-weight:700;text-align:center;}
+
+/* PROGRESS BAR */
+.run-bar{height:2px;background:var(--border);flex-shrink:0;}
+.run-fill{height:100%;background:var(--blue);width:0%;transition:width .3s;}
+
+/* LAYOUT */
+.layout{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:270px;flex-shrink:0;border-right:1px solid var(--border);
+  padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;}
+.content{flex:1;overflow:hidden;display:flex;flex-direction:column;}
+
+/* TABS */
+.tab-bar{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--card);}
+.tab-btn{padding:9px 20px;font-size:12px;font-weight:600;color:var(--muted);
+  cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;white-space:nowrap;}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);}
+.tab-pane{display:none;flex:1;overflow-y:auto;padding:14px;}
+.tab-pane.active{display:flex;flex-direction:column;gap:12px;}
+
+/* SIDEBAR CONTROLS */
+.sec{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:5px;}
+.ds-tabs{display:flex;gap:5px;}
+.dt{flex:1;padding:6px 3px;border:1px solid var(--border);background:var(--card2);
+  color:var(--muted);border-radius:7px;cursor:pointer;font-size:10px;font-weight:700;
+  transition:all .2s;text-align:center;}
+.dt.active{background:var(--blue);border-color:var(--blue);color:#fff;}
+.upload-zone{border:2px dashed var(--border);border-radius:9px;padding:14px 10px;
+  text-align:center;cursor:pointer;transition:all .2s;}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--blue);background:#1a2550;}
+.upload-zone input{display:none;}
+.u-ico{font-size:20px;margin-bottom:4px;}
+.u-txt{color:var(--muted);font-size:10px;}
+.u-txt span{color:var(--blue);}
+.fname{font-size:9px;color:var(--blue);margin-top:3px;min-height:13px;}
+.btn{width:100%;padding:7px;border-radius:7px;border:none;cursor:pointer;
+  font-size:11px;font-weight:700;transition:all .2s;}
+.btn-p{background:var(--blue);color:#fff;} .btn-p:hover{background:#3b78e7;}
+.btn-p:disabled{opacity:.4;cursor:not-allowed;}
+.btn-s{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-s:hover{border-color:var(--blue);color:var(--blue);}
+.api-inp{background:var(--card2);border:1px solid var(--border);color:var(--text);
+  border-radius:5px;padding:5px 8px;width:100%;font-size:10px;}
+.infobox{background:var(--card2);border:1px solid var(--border);border-radius:7px;padding:8px;}
+.ir{display:flex;justify-content:space-between;font-size:10px;
+  padding:2px 0;border-bottom:1px solid #1e2235;}
+.ir:last-child{border-bottom:none;}
+.ik{color:var(--muted)}.iv{color:var(--text);font-weight:600;}
+.sdot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:3px;}
+.dok{background:var(--green)}.doff{background:var(--muted)}
+
+/* STATS */
+.stats4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.sc{background:var(--card);border:1px solid var(--border);border-radius:9px;padding:10px 12px;}
+.sc-l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
+.sc-v{font-size:20px;font-weight:700;}.sc-s{font-size:9px;color:var(--muted);margin-top:1px;}
+.g{color:var(--green)}.r{color:var(--red)}.b{color:var(--blue)}.y{color:var(--yellow)}
+
+/* CHARTS */
+.charts2{display:grid;grid-template-columns:3fr 2fr;gap:12px;}
+.cc{background:var(--card);border:1px solid var(--border);border-radius:9px;padding:12px;}
+.ct{font-size:11px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.cdot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.sem-bars{display:flex;gap:2px;align-items:flex-end;height:50px;}
+.sb{flex:1;border-radius:2px 2px 0 0;min-height:2px;transition:height .3s;}
+
+/* TABLE */
+.tw{background:var(--card);border:1px solid var(--border);border-radius:9px;overflow:hidden;}
+.th2{padding:8px 12px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border);}
+.tscroll{max-height:220px;overflow-y:auto;}
+table{width:100%;border-collapse:collapse;}
+th{padding:6px 9px;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.5px;background:var(--card2);position:sticky;top:0;}
+td{padding:5px 9px;font-size:10px;border-bottom:1px solid #1e2235;}
+tr.atk{background:rgba(239,68,68,.07);}
+tr:hover{background:#1e2235!important;}
+.lb{display:inline-block;padding:2px 6px;border-radius:7px;font-size:9px;font-weight:700;}
+.la{background:rgba(239,68,68,.2);color:var(--red);}
+.ln{background:rgba(34,197,94,.15);color:var(--green);}
+
+/* ── LIVE TAB ── */
+.live-controls{display:flex;align-items:center;gap:10px;background:var(--card);
+  border:1px solid var(--border);border-radius:9px;padding:10px 14px;}
+.live-ds-tabs{display:flex;gap:5px;}
+.ldt{padding:5px 10px;border:1px solid var(--border);background:var(--card2);
+  color:var(--muted);border-radius:6px;cursor:pointer;font-size:10px;font-weight:700;transition:all .2s;}
+.ldt.active{background:var(--blue);border-color:var(--blue);color:#fff;}
+.ldt.both.active{background:var(--purple);border-color:var(--purple);}
+.speed-wrap{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);}
+input[type=range]{accent-color:var(--blue);width:80px;}
+.live-btn{padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:11px;
+  font-weight:700;transition:all .2s;}
+.live-start{background:var(--green);color:#fff;}
+.live-start:hover{background:#16a34a;}
+.live-stop{background:var(--red);color:#fff;display:none;}
+.live-stop:hover{background:#b91c1c;}
+.live-start:disabled{opacity:.4;cursor:not-allowed;}
+
+.live-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;}
+.lst{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;}
+.lst-l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+.lst-v{font-size:17px;font-weight:700;margin-top:2px;}
+
+/* Console */
+.console-wrap{background:var(--card2);border:1px solid var(--border);border-radius:9px;
+  overflow:hidden;flex:1;display:flex;flex-direction:column;min-height:0;}
+.console-hdr{padding:7px 12px;display:flex;align-items:center;gap:8px;
+  border-bottom:1px solid var(--border);background:var(--card);flex-shrink:0;}
+.console-hdr span{font-size:11px;font-weight:700;}
+.live-ind{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+.live-ind.on{background:var(--red);animation:blink .8s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.console-body{flex:1;overflow-y:auto;padding:6px 10px;font-family:monospace;font-size:11px;
+  line-height:1.7;}
+.clog{display:flex;gap:8px;padding:1px 0;border-bottom:1px solid rgba(45,49,72,.5);}
+.clog:last-child{border-bottom:none;}
+.cl-time{color:var(--muted);flex-shrink:0;min-width:85px;}
+.cl-id{color:var(--muted);flex-shrink:0;min-width:52px;}
+.cl-ds{flex-shrink:0;min-width:52px;font-weight:700;}
+.cl-ds.ciciot{color:var(--cyan);}
+.cl-ds.intel{color:var(--yellow);}
+.cl-lbl{flex-shrink:0;min-width:90px;}
+.cl-lbl.atk{color:var(--red);font-weight:700;}
+.cl-lbl.nrm{color:var(--green);}
+.cl-err{color:var(--muted);flex-shrink:0;}
+.cl-bar{flex:1;overflow:hidden;}
+.cl-barfill{height:8px;border-radius:3px;margin-top:3px;transition:width .1s;}
+.console-footer{padding:5px 10px;display:flex;align-items:center;gap:10px;
+  border-top:1px solid var(--border);background:var(--card);flex-shrink:0;font-size:10px;}
+.console-footer label{display:flex;align-items:center;gap:4px;color:var(--muted);cursor:pointer;}
+.console-footer input[type=checkbox]{accent-color:var(--blue);}
+.cbtn{padding:3px 9px;border:1px solid var(--border);background:none;color:var(--muted);
+  border-radius:5px;cursor:pointer;font-size:10px;}
+.cbtn:hover{border-color:var(--red);color:var(--red);}
+
+/* RECON PANEL */
+.recon-panel{background:var(--card);border:1px solid var(--border);border-radius:9px;padding:14px;}
+.recon-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px;}
+.recon-card{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px;}
+.recon-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;
+  font-weight:700;margin-bottom:8px;}
+.rb-nrm{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.3);}
+.rb-atk{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.3);}
+.recon-err{font-size:10px;color:var(--muted);margin-top:6px;font-family:monospace;}
+
+/* SCENARIO BUTTONS */
+.scen-btn{flex:1;padding:6px 4px;border-radius:7px;border:1px solid var(--border);
+  background:var(--card);color:var(--text);cursor:pointer;font-size:10px;font-weight:700;
+  transition:all .2s;text-align:center;}
+.scen-btn:hover{border-color:var(--blue);color:var(--blue);}
+.scen-btn.nrm:hover{border-color:var(--green);color:var(--green);}
+.scen-btn.atk:hover{border-color:var(--red);color:var(--red);}
+.scen-btn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* EXPECTED RESULT BANNER */
+.expect-banner{padding:6px 10px;border-radius:7px;font-size:10px;font-weight:700;
+  text-align:center;margin-bottom:4px;}
+.eb-nrm{background:rgba(34,197,94,.1);color:var(--green);border:1px solid rgba(34,197,94,.25);}
+.eb-atk{background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.25);}
+.eb-mix{background:rgba(79,142,247,.1);color:var(--blue);border:1px solid rgba(79,142,247,.25);}
+
+/* METRICS TAB */
+.cm-cell{border-radius:7px;padding:8px 6px;text-align:center;position:relative;}
+.cm-val{font-size:20px;font-weight:800;color:var(--text);margin:3px 0;}
+.mtr-sc{background:var(--card);border:1px solid var(--border);border-radius:9px;padding:10px 12px;text-align:center;}
+.mtr-sc-l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;}
+.mtr-sc-v{font-size:20px;font-weight:800;}
+.mtr-sc-s{font-size:9px;color:var(--muted);margin-top:2px;}
+.pa-bar-wrap{display:flex;align-items:center;gap:8px;margin:4px 0;}
+.pa-lbl{font-size:10px;color:var(--text);width:180px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pa-bar{flex:1;background:var(--bg);border-radius:3px;height:14px;position:relative;}
+.pa-fill{height:100%;border-radius:3px;transition:width .6s;}
+.pa-val{position:absolute;right:5px;top:0;font-size:9px;font-weight:700;line-height:14px;color:#fff;}
+/* Feature / explanation cards */
+.feat-card{background:var(--card2);border:1px solid var(--border);border-radius:7px;padding:9px 10px;}
+.fc-name{font-size:10px;font-weight:700;color:var(--text);margin-bottom:4px;font-family:monospace;}
+.fc-desc{font-size:10px;color:var(--muted);line-height:1.6;}
+.exp-row{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border);}
+.exp-row:last-child{border-bottom:none;}
+.exp-tag{padding:3px 9px;border-radius:5px;font-size:10px;font-weight:700;flex-shrink:0;min-width:80px;text-align:center;}
+.exp-txt{font-size:10px;color:var(--muted);line-height:1.65;}
+.exp-txt strong{color:var(--text);}
+
+/* empty */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px;color:var(--muted);gap:8px;text-align:center;flex:1;}
+.ei{font-size:38px;opacity:.3;}
+.et{font-size:14px;color:var(--text);font-weight:600;}
+.es{font-size:11px;max-width:280px;}
+
+/* toast */
+.toast{position:fixed;bottom:16px;right:16px;background:var(--card);border:1px solid var(--border);
+  border-radius:9px;padding:8px 12px;font-size:11px;z-index:99;
+  transform:translateY(70px);opacity:0;transition:all .3s;max-width:360px;}
+.toast.show{transform:translateY(0);opacity:1;}
+.toast.ok{border-color:var(--green)}.toast.err{border-color:var(--red)}
+
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-logo">🛡️</div>
+  <div>
+    <div class="hdr-title">IoT Gateway — Anomaly Detection Demo</div>
+    <div class="hdr-sub">GRU Autoencoder · Semantic Compression · Click pipeline steps để xem chi tiết</div>
+  </div>
+  <div class="badge">EEEEIU21019 · Ngo Hoang Huy</div>
+</div>
+
+<!-- PIPELINE -->
+<div class="pipe-wrap">
+  <div class="pipe-row">
+    <div class="ps" id="s0" onclick="selStep(0)"><div class="ps-num">1</div><div class="ps-ico">📡</div><div class="ps-lbl">IoT Device</div><div class="ps-sub">Raw stream</div></div>
+    <div class="pa" id="a0">▶</div>
+    <div class="ps" id="s1" onclick="selStep(1)"><div class="ps-num">2</div><div class="ps-ico">🔢</div><div class="ps-lbl">Pre-processing</div><div class="ps-sub">Scale · W=64</div></div>
+    <div class="pa" id="a1">▶</div>
+    <div class="ps" id="s2" onclick="selStep(2)"><div class="ps-num">3</div><div class="ps-ico">🧠</div><div class="ps-lbl">GRU Encoder</div><div class="ps-sub">320→32</div></div>
+    <div class="pa" id="a2">▶</div>
+    <div class="ps" id="s3" onclick="selStep(3)"><div class="ps-num">4</div><div class="ps-ico">💎</div><div class="ps-lbl">Semantic Vec</div><div class="ps-sub">32-dim · 90% BW</div></div>
+    <div class="pa" id="a3">▶</div>
+    <div class="ps" id="s4" onclick="selStep(4)"><div class="ps-num">5</div><div class="ps-ico">🔄</div><div class="ps-lbl">GRU Decoder</div><div class="ps-sub">32→320</div></div>
+    <div class="pa" id="a4">▶</div>
+    <div class="ps" id="s5" onclick="selStep(5)"><div class="ps-num">6</div><div class="ps-ico">📊</div><div class="ps-lbl">Threshold</div><div class="ps-sub">MSE &gt; θ ?</div></div>
+    <div class="pa" id="a5">▶</div>
+    <div class="ps" id="s6" onclick="selStep(6)"><div class="ps-num">7</div><div class="ps-ico">🚨</div><div class="ps-lbl">Alert</div><div class="ps-sub">NORMAL/ATTACK</div></div>
+  </div>
+  <div class="click-hint">💡 Click bất kỳ bước nào để xem chi tiết kỹ thuật</div>
+</div>
+
+<!-- DETAIL PANEL -->
+<div class="detail-panel" id="dp">
+  <div class="dp-inner">
+    <div class="dp-head">
+      <div class="dp-icon" id="dp-ic"></div>
+      <div><div class="dp-title" id="dp-ti"></div><div class="dp-step" id="dp-st"></div></div>
+      <button class="dp-close" onclick="closeDP()">✕</button>
+    </div>
+    <div class="dp-body">
+      <p id="dp-desc"></p>
+      <div class="dp-vis" id="dp-vis"><div class="dp-vis-t">Visual</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- PROGRESS -->
+<div class="run-bar"><div class="run-fill" id="rfill"></div></div>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <!-- API status pill -->
+    <div style="display:flex;align-items:center;gap:8px;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;">
+      <span class="sdot doff" id="sdot" style="flex-shrink:0"></span>
+      <input class="api-inp" id="api-url" value="http://localhost:8000" oninput="checkApi()"
+        style="background:none;border:none;padding:0;flex:1;font-size:11px;color:var(--text);">
+      <span id="stxt" style="font-size:10px;color:var(--muted);white-space:nowrap">—</span>
+    </div>
+
+    <!-- Dataset + Data Source (merged) -->
+    <div style="background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;">
+      <div style="font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.5px">DATASET &amp; DATA</div>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:5px;">
+        <div class="dt active" id="dc" onclick="setDs('ciciot')"
+          style="flex:1;padding:7px 4px;border-radius:8px;display:flex;align-items:center;gap:6px;">
+          <span style="font-size:15px">🌐</span>
+          <div><div style="font-size:11px;font-weight:700">CICIoT</div>
+          <div style="font-size:9px;opacity:.75">Network · 5 col</div></div>
+        </div>
+        <div class="dt" id="di" onclick="setDs('intel')"
+          style="flex:1;padding:7px 4px;border-radius:8px;display:flex;align-items:center;gap:6px;">
+          <span style="font-size:15px">🌡️</span>
+          <div><div style="font-size:11px;font-weight:700">Intel</div>
+          <div style="font-size:9px;opacity:.75">Sensor · 4 col</div></div>
+        </div>
+      </div>
+
+      <!-- Columns hint -->
+      <div id="col-hint" style="font-size:9px;color:var(--muted);background:var(--bg);border-radius:5px;padding:4px 7px;line-height:1.6;"></div>
+
+      <!-- Upload area — no dashed border, just background -->
+      <label id="upz" style="display:flex;flex-direction:column;align-items:center;gap:4px;
+        background:var(--bg);border-radius:8px;padding:10px 8px;cursor:pointer;
+        transition:background .2s;" onmouseover="this.style.background='#1a2550'" onmouseout="this.style.background='var(--bg)'">
+        <input type="file" id="finp" accept=".csv" onchange="onFile(this)" style="display:none;">
+        <span style="font-size:20px">📂</span>
+        <span style="font-size:10px;color:var(--muted)">Drop CSV hoặc <span style="color:var(--blue)">click browse</span></span>
+        <span id="fname" style="font-size:10px;color:var(--blue);min-height:14px;"></span>
+      </label>
+
+      <!-- Quick scenario buttons -->
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <div style="font-size:9px;color:var(--muted);font-weight:700;letter-spacing:.6px">QUICK SCENARIOS</div>
+        <div id="expect-banner" style="display:none" class="expect-banner eb-mix"></div>
+        <div style="display:flex;gap:5px;">
+          <button class="scen-btn nrm" onclick="demoScenario('normal')" id="scen-n">🟢 Normal</button>
+          <button class="scen-btn atk" onclick="demoScenario('attack')" id="scen-a">🔴 Attack</button>
+          <button class="scen-btn"     onclick="demoScenario('mixed')"  id="scen-m">⚡ Mixed</button>
+        </div>
+        <button id="run-btn" onclick="runUpload()" disabled
+          style="padding:7px 4px;border-radius:7px;border:none;
+          background:var(--blue);color:#fff;cursor:pointer;font-size:11px;font-weight:700;
+          transition:all .2s;opacity:.4;">
+          ▶ Run Detection
+        </button>
+      </div>
+    </div>
+
+    <!-- Model info -->
+    <div style="background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px;">
+      <div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:8px;letter-spacing:.5px">MODEL INFO</div>
+      <!-- AUC highlight -->
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <div style="flex:1;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:7px;padding:7px;text-align:center;">
+          <div style="font-size:9px;color:var(--muted)">ROC-AUC</div>
+          <div style="font-size:18px;font-weight:800;color:var(--green)">1.0000</div>
+        </div>
+        <div style="flex:1;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.3);border-radius:7px;padding:7px;text-align:center;">
+          <div style="font-size:9px;color:var(--muted)">Compression</div>
+          <div style="font-size:18px;font-weight:800;color:var(--purple)">10:1</div>
+        </div>
+      </div>
+      <div class="infobox" style="padding:6px 8px;">
+        <div class="ir"><span class="ik">Architecture</span><span class="iv">GRU Autoencoder</span></div>
+        <div class="ir"><span class="ik">Window W</span><span class="iv">64 timesteps</span></div>
+        <div class="ir"><span class="ik">Bottleneck</span><span class="iv">32-dim</span></div>
+        <div class="ir"><span class="ik">Parameters</span><span class="iv">159,141</span></div>
+        <div class="ir"><span class="ik">Threshold θ</span><span class="iv y" id="thresh-v">—</span></div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="margin-top:auto;padding:8px 6px;border-top:1px solid var(--border);
+      display:flex;flex-direction:column;gap:2px;">
+      <div style="font-size:10px;color:var(--text);font-weight:600;">Ngo Hoang Huy · EEEEIU21019</div>
+      <div style="font-size:9px;color:var(--muted);">Supervisor: MEng. Do Ngoc Hung</div>
+      <div style="font-size:9px;color:var(--muted);">EE Dept · Int'l University VNU-HCM</div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+    <div class="tab-bar">
+      <div class="tab-btn active" onclick="switchTab('upload',this)">📁 File Upload</div>
+      <div class="tab-btn"        onclick="switchTab('live',this)">🔴 Live Stream</div>
+      <div class="tab-btn"        onclick="switchTab('metrics',this)">📊 Metrics</div>
+    </div>
+
+    <!-- ══ UPLOAD TAB ══ -->
+    <div class="tab-pane active" id="tab-upload">
+      <div class="empty" id="empty-up">
+        <div class="ei">🔍</div>
+        <div class="et">Upload CSV → Run Detection</div>
+        <div class="es">Chọn dataset, upload file CSV, nhấn Run Detection để xem kết quả đầy đủ.</div>
+      </div>
+      <div id="up-results" style="display:none;flex-direction:column;gap:12px">
+        <div class="stats4">
+          <div class="sc"><div class="sc-l">Total Windows</div><div class="sc-v b" id="ut">—</div><div class="sc-s">W=64</div></div>
+          <div class="sc"><div class="sc-l">Normal</div><div class="sc-v g" id="un">—</div><div class="sc-s" id="unp">—</div></div>
+          <div class="sc"><div class="sc-l">Attacks</div><div class="sc-v r" id="ua">—</div><div class="sc-s" id="uap">—</div></div>
+          <div class="sc"><div class="sc-l">Threshold θ</div><div class="sc-v y" id="uth">—</div><div class="sc-s">MSE cutoff</div></div>
+        </div>
+        <div class="charts2">
+          <div class="cc">
+            <div class="ct"><div class="cdot" style="background:var(--blue)"></div>Reconstruction Error<span style="margin-left:auto;font-size:9px;color:var(--muted)">🔴 Attack &nbsp;🔵 Normal</span></div>
+            <canvas id="err-ch" height="140"></canvas>
+          </div>
+          <div class="cc">
+            <div class="ct"><div class="cdot" style="background:var(--purple)"></div>Semantic Vector (last window)</div>
+            <div class="sem-bars" id="sem-b"></div>
+            <div style="font-size:9px;color:var(--muted);text-align:center;margin-top:5px">32 values → <b style="color:var(--purple)">90% bandwidth saved</b></div>
+            <canvas id="sem-ch" height="70" style="margin-top:6px"></canvas>
+          </div>
+        </div>
+        <!-- RECONSTRUCTION PANEL -->
+        <div id="recon-section" style="display:none">
+          <div class="recon-panel">
+            <div class="ct">
+              <div class="cdot" style="background:var(--cyan)"></div>
+              Reconstruction Comparison — Tại sao model phát hiện được tấn công
+              <span style="margin-left:auto;font-size:9px;color:var(--muted)">
+                Input <span style="color:var(--blue)">──</span> vs Reconstructed <span style="color:var(--cyan)">──</span>
+              </span>
+            </div>
+            <div class="recon-grid">
+              <div class="recon-card" id="recon-n-card" style="display:none">
+                <span class="recon-badge rb-nrm">✓ NORMAL — Window #<span id="recon-n-id">—</span></span>
+                <canvas id="recon-n-ch" height="110"></canvas>
+                <div class="recon-err">
+                  MSE = <span id="recon-n-err" style="color:var(--green);font-weight:700">—</span>
+                  &lt; θ &nbsp;→ Model nhận ra mẫu → Reconstruct tốt
+                </div>
+              </div>
+              <div class="recon-card" id="recon-a-card" style="display:none">
+                <span class="recon-badge rb-atk">⚠ ATTACK — Window #<span id="recon-a-id">—</span></span>
+                <canvas id="recon-a-ch" height="110"></canvas>
+                <div class="recon-err">
+                  MSE = <span id="recon-a-err" style="color:var(--red);font-weight:700">—</span>
+                  &gt; θ &nbsp;→ Pattern lạ → Reconstruct kém → ATTACK
+                </div>
+              </div>
+            </div>
+            <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:center">
+              💡 Normal: 2 đường <em>gần nhau</em> (MSE thấp) &nbsp;|&nbsp;
+                 Attack: 2 đường <em>phân kỳ</em> (MSE cao) &nbsp;→&nbsp; threshold θ phân loại
+            </div>
+          </div>
+        </div>
+
+        <div class="tw">
+          <div class="th2"><div style="font-size:11px;font-weight:700">Detection Results</div><div style="font-size:9px;color:var(--muted)" id="tcnt">—</div></div>
+          <div class="tscroll"><table>
+            <thead><tr><th>#</th><th>Label</th><th>Error</th><th>vs θ</th><th>True Label</th><th>Semantic (8)</th></tr></thead>
+            <tbody id="tbody"></tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ LIVE TAB ══ -->
+    <div class="tab-pane" id="tab-live">
+
+      <!-- Controls -->
+      <div class="live-controls">
+        <div class="live-ds-tabs">
+          <div class="ldt active" id="ld-c" onclick="setLiveDs('ciciot')">🌐 CICIoT</div>
+          <div class="ldt"        id="ld-i" onclick="setLiveDs('intel')">🌡️ Intel</div>
+          <div class="ldt both"   id="ld-m" onclick="setLiveDs('mixed')">⚡ Both</div>
+        </div>
+        <div class="speed-wrap">
+          ⚡ Speed:
+          <input type="range" id="speed-sl" min="1" max="30" value="5" oninput="document.getElementById('speed-v').textContent=this.value">
+          <span id="speed-v" style="min-width:28px;color:var(--text);font-weight:700">5</span>/sec
+        </div>
+        <button class="live-btn live-start" id="lstart" onclick="startLive()">▶ Start</button>
+        <button class="live-btn live-stop"  id="lstop"  onclick="stopLive()">■ Stop</button>
+        <button class="btn-s" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--muted);cursor:pointer;font-size:10px" onclick="resetLive()">↺ Reset</button>
+      </div>
+
+      <!-- Live stats -->
+      <div class="live-stats">
+        <div class="lst"><div class="lst-l">Total</div><div class="lst-v b" id="ls-tot">0</div></div>
+        <div class="lst"><div class="lst-l">Normal</div><div class="lst-v g" id="ls-nrm">0</div></div>
+        <div class="lst"><div class="lst-l">Attacks</div><div class="lst-v r" id="ls-atk">0</div></div>
+        <div class="lst"><div class="lst-l">Rate</div><div class="lst-v b" id="ls-rate">0/s</div></div>
+        <div class="lst"><div class="lst-l">Loop</div><div class="lst-v y" id="ls-loop">×0</div></div>
+      </div>
+
+      <!-- Live chart -->
+      <div class="cc" style="flex-shrink:0">
+        <div class="ct">
+          <div class="cdot" style="background:var(--blue)"></div>
+          Reconstruction Error — live (last 80 windows)
+          <span style="margin-left:auto;font-size:9px;color:var(--muted)">🔴 Attack &nbsp;🔵 Normal</span>
+        </div>
+        <canvas id="live-ch" height="100"></canvas>
+      </div>
+
+      <!-- Console -->
+      <div class="console-wrap">
+        <div class="console-hdr">
+          <div class="live-ind" id="live-ind"></div>
+          <span>Detection Log — mỗi dòng = 1 window</span>
+          <span style="font-size:9px;color:var(--muted);margin-left:8px">Normal ✓ &amp; Attack ⚠ đều hiện</span>
+        </div>
+        <div class="console-body" id="console"></div>
+        <div class="console-footer">
+          <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
+          <button class="cbtn" onclick="clearConsole()">Clear</button>
+          <span style="margin-left:auto;color:var(--muted)" id="console-cnt">0 entries</span>
+        </div>
+      </div>
+    </div><!-- end tab-live -->
+
+    <!-- ══ METRICS TAB ══ -->
+    <div class="tab-pane" id="tab-metrics">
+
+      <!-- Control bar -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:9px;padding:10px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text)">Model Evaluation</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:1px">Chạy inference trên demo CSV → tính toán tất cả chỉ số đánh giá</div>
+        </div>
+        <button id="mtr-run-btn" onclick="runMetrics()"
+          style="padding:7px 16px;border-radius:7px;border:none;background:var(--blue);color:#fff;
+          cursor:pointer;font-size:11px;font-weight:700;transition:all .2s;flex-shrink:0;">
+          ▶ Chạy Đánh Giá
+        </button>
+        <span id="mtr-status" style="font-size:10px;color:var(--muted)">Chưa chạy</span>
+        <div style="margin-left:auto;display:flex;gap:5px;">
+          <div class="ldt active" id="md-c" onclick="setMtrDs('ciciot',this)">🌐 CICIoT</div>
+          <div class="ldt"        id="md-i" onclick="setMtrDs('intel',this)">🌡️ Intel</div>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div id="mtr-empty" class="empty">
+        <div class="ei">📊</div>
+        <div class="et">Nhấn "Chạy Đánh Giá" để xem kết quả</div>
+        <div class="es">Tính AUC, Precision, Recall, F1, Confusion Matrix và phân phối lỗi trực tiếp từ model đã train.</div>
+      </div>
+
+      <!-- Results container (hidden until loaded) -->
+      <div id="mtr-results" style="display:none;flex-direction:column;gap:12px;">
+
+        <!-- Metric strip -->
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;" id="mtr-strip">
+          <!-- filled by JS -->
+        </div>
+
+        <!-- Confusion matrix + Error distribution -->
+        <div style="display:grid;grid-template-columns:220px 1fr;gap:12px;">
+
+          <!-- Confusion Matrix -->
+          <div class="cc" style="padding:12px;">
+            <div class="ct" style="margin-bottom:10px;">
+              <div class="cdot" style="background:var(--purple)"></div>
+              Confusion Matrix
+              <span id="mtr-cm-n" style="margin-left:auto;font-size:9px;color:var(--muted)"></span>
+            </div>
+            <!-- 2×2 grid -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px;">
+              <div style="font-size:8px;color:var(--muted);text-align:center;grid-column:1/3;padding-bottom:2px;">→ Predicted</div>
+              <div class="cm-cell" id="cm-tn" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);">
+                <div style="font-size:8px;color:var(--green);font-weight:700;">TN</div>
+                <div class="cm-val" id="cm-tn-v">—</div>
+                <div style="font-size:8px;color:var(--muted);">True Normal</div>
+              </div>
+              <div class="cm-cell" id="cm-fp" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);">
+                <div style="font-size:8px;color:var(--red);font-weight:700;">FP</div>
+                <div class="cm-val" id="cm-fp-v">—</div>
+                <div style="font-size:8px;color:var(--muted);">False Alarm</div>
+              </div>
+              <div class="cm-cell" id="cm-fn" style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);">
+                <div style="font-size:8px;color:var(--yellow);font-weight:700;">FN</div>
+                <div class="cm-val" id="cm-fn-v">—</div>
+                <div style="font-size:8px;color:var(--muted);">Missed!</div>
+              </div>
+              <div class="cm-cell" id="cm-tp" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);">
+                <div style="font-size:8px;color:var(--green);font-weight:700;">TP</div>
+                <div class="cm-val" id="cm-tp-v">—</div>
+                <div style="font-size:8px;color:var(--muted);">True Attack</div>
+              </div>
+            </div>
+            <div style="font-size:8px;color:var(--muted);writing-mode:vertical-lr;position:absolute;transform:translateX(-106px) translateY(-88px) rotate(180deg)">↑ Actual</div>
+            <div style="font-size:9px;color:var(--muted);line-height:1.6;margin-top:4px">
+              <span style="color:var(--green)">■</span> Đúng &nbsp;
+              <span style="color:var(--red)">■</span> False Alarm &nbsp;
+              <span style="color:var(--yellow)">■</span> Bỏ sót
+            </div>
+          </div>
+
+          <!-- Error distribution chart -->
+          <div class="cc">
+            <div class="ct">
+              <div class="cdot" style="background:var(--blue)"></div>
+              Phân phối Reconstruction Error
+              <span style="margin-left:auto;font-size:9px;color:var(--muted)">
+                🔵 Normal &nbsp;🔴 Attack &nbsp;🟡 Threshold θ
+              </span>
+            </div>
+            <canvas id="mtr-err-ch" height="130"></canvas>
+            <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">
+              💡 Hai đám mây tách biệt = model phân loại tốt. Đường θ nằm giữa = ngưỡng tối ưu.
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-attack breakdown (CICIoT only) -->
+        <div id="mtr-perattack" class="tw" style="display:none;">
+          <div class="th2">
+            <div style="font-size:11px;font-weight:700">Per-Attack Type Recall</div>
+            <div style="font-size:9px;color:var(--muted)">Recall = % attack windows được phát hiện đúng</div>
+          </div>
+          <div style="padding:10px 12px;" id="mtr-pa-body"></div>
+        </div>
+
+        <!-- Feature explanation -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:9px;overflow:hidden;">
+          <div onclick="toggleExplain()" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none;">
+            <span style="font-size:14px;">ℹ️</span>
+            <span style="font-size:11px;font-weight:700;">Giải thích đầy đủ: Features · Metrics · Confusion Matrix</span>
+            <span id="exp-arrow" style="margin-left:auto;color:var(--muted);font-size:12px;">▼</span>
+          </div>
+          <div id="exp-body" style="display:none;padding:0 14px 14px;flex-direction:column;gap:14px;">
+
+            <!-- Features -->
+            <div>
+              <div style="font-size:10px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">📡 CICIoT 2023 — Features (5 chiều)</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <div class="feat-card">
+                  <div class="fc-name">flow_duration</div>
+                  <div class="fc-desc">Thời gian của một network flow (giây). DDoS floods thường có <strong>duration rất ngắn</strong> hoặc rất đều đặn bất thường.</div>
+                </div>
+                <div class="feat-card">
+                  <div class="fc-name">Rate</div>
+                  <div class="fc-desc">Tốc độ truyền gói tin (packets/sec). Attack traffic thường có <strong>rate đột biến cực cao</strong> bất thường.</div>
+                </div>
+                <div class="feat-card">
+                  <div class="fc-name">Number</div>
+                  <div class="fc-desc">Số lượng packets trong flow. DDoS flood = <strong>số packet rất lớn</strong> trong thời gian ngắn.</div>
+                </div>
+                <div class="feat-card">
+                  <div class="fc-name">IAT (Inter-Arrival Time)</div>
+                  <div class="fc-desc">Thời gian giữa 2 gói tin liên tiếp (giây). Attack: IAT <strong>đều đặn gần bằng 0</strong> (scripted flood), không tự nhiên như human traffic.</div>
+                </div>
+                <div class="feat-card" style="grid-column:1/3;">
+                  <div class="fc-name">Tot size (Total Size)</div>
+                  <div class="fc-desc">Tổng kích thước payload (bytes). Kết hợp với Rate và IAT tạo thành "temporal fingerprint" của traffic. GRU học toàn bộ pattern này qua 64 timestep.</div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:10px;font-weight:700;color:var(--yellow);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">🌡️ Intel Berkeley — Features (4 chiều)</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <div class="feat-card">
+                  <div class="fc-name">temperature (°C)</div>
+                  <div class="fc-desc">Nhiệt độ môi trường. Bình thường: 18–35°C. <strong>SensorFault: &gt;100°C hoặc &lt;-20°C</strong> — giá trị vật lý bất khả thi.</div>
+                </div>
+                <div class="feat-card">
+                  <div class="fc-name">humidity (%)</div>
+                  <div class="fc-desc">Độ ẩm tương đối. Bình thường: 20–90%. Fault: &gt;100% (cảm biến hỏng báo giá trị ngoài dải vật lý).</div>
+                </div>
+                <div class="feat-card">
+                  <div class="fc-name">light (lux)</div>
+                  <div class="fc-desc">Cường độ ánh sáng. Bình thường: 0–2000 lux. Fault: &gt;3000 lux hoặc giá trị âm.</div>
+                </div>
+                <div class="feat-card">
+                  <div class="fc-name">voltage (V)</div>
+                  <div class="fc-desc">Điện áp pin cảm biến. Bình thường: 2.0–3.5V. &lt;2.0V = pin gần hết, &gt;3.5V = sự cố điện.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Metrics explanations -->
+            <div>
+              <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">📈 Các chỉ số đánh giá</div>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <div class="exp-row">
+                  <div class="exp-tag" style="background:rgba(79,142,247,.15);color:var(--blue)">AUC-ROC</div>
+                  <div class="exp-txt"><strong>Area Under ROC Curve.</strong> Đo khả năng phân biệt Normal vs Attack của model khi thay đổi threshold.<br>
+                  <span style="color:var(--green)">1.0 = hoàn hảo</span> · 0.5 = random · &lt;0.5 = tệ hơn random.<br>
+                  <em>→ Không phụ thuộc vào threshold θ, đánh giá "bản chất" của model.</em></div>
+                </div>
+                <div class="exp-row">
+                  <div class="exp-tag" style="background:rgba(34,197,94,.15);color:var(--green)">Accuracy</div>
+                  <div class="exp-txt"><strong>Độ chính xác tổng thể.</strong> = (TP + TN) / (TP + TN + FP + FN)<br>
+                  Tỉ lệ windows được phân loại đúng trong tổng số. Dễ hiểu nhưng dễ bị mislead khi dữ liệu mất cân bằng.</div>
+                </div>
+                <div class="exp-row">
+                  <div class="exp-tag" style="background:rgba(168,85,247,.15);color:var(--purple)">Precision</div>
+                  <div class="exp-txt"><strong>Độ chính xác của cảnh báo.</strong> = TP / (TP + FP)<br>
+                  "Khi model báo ATTACK, bao nhiêu % là đúng?"<br>
+                  <span style="color:var(--red)">Thấp = nhiều False Alarm</span> → người vận hành mất niềm tin vào hệ thống.</div>
+                </div>
+                <div class="exp-row">
+                  <div class="exp-tag" style="background:rgba(239,68,68,.15);color:var(--red)">Recall</div>
+                  <div class="exp-txt"><strong>Độ nhạy / Detection Rate.</strong> = TP / (TP + FN)<br>
+                  "Trong tất cả attack thực sự, bao nhiêu % được phát hiện?"<br>
+                  <span style="color:var(--red)">Thấp = bỏ sót attack</span> → nguy hiểm nhất cho hệ thống bảo mật. Thesis target: <strong>Recall = 1.0</strong>.</div>
+                </div>
+                <div class="exp-row">
+                  <div class="exp-tag" style="background:rgba(245,158,11,.15);color:var(--yellow)">F1-Score</div>
+                  <div class="exp-txt"><strong>Harmonic mean của Precision và Recall.</strong> = 2 × P × R / (P + R)<br>
+                  Metric cân bằng duy nhất khi quan tâm cả hai. F1 = 1.0 khi P = R = 1.0.</div>
+                </div>
+                <div class="exp-row">
+                  <div class="exp-tag" style="background:rgba(6,182,212,.15);color:var(--cyan)">Threshold θ</div>
+                  <div class="exp-txt"><strong>Ngưỡng phân loại MSE.</strong> error &gt; θ → ATTACK.<br>
+                  Được chọn tại <strong>percentile 99</strong> của reconstruction error trên validation normal.<br>
+                  → 1% False Positive Rate. Tăng θ = ít False Alarm nhưng bỏ sót nhiều hơn. Giảm θ = ngược lại.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Confusion matrix explanation -->
+            <div>
+              <div style="font-size:10px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">🔢 Confusion Matrix — 4 trường hợp</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <div class="feat-card" style="border-color:rgba(34,197,94,.3);">
+                  <div class="fc-name" style="color:var(--green)">✓ True Negative (TN)</div>
+                  <div class="fc-desc">Traffic <strong>thực sự là Normal</strong> và model dự đoán NORMAL.<br><em>Tốt — không có False Alarm.</em></div>
+                </div>
+                <div class="feat-card" style="border-color:rgba(239,68,68,.3);">
+                  <div class="fc-name" style="color:var(--red)">✗ False Positive (FP)</div>
+                  <div class="fc-desc">Traffic <strong>thực sự là Normal</strong> nhưng model báo ATTACK.<br><em>False Alarm — gây phiền, giảm niềm tin.</em></div>
+                </div>
+                <div class="feat-card" style="border-color:rgba(245,158,11,.3);">
+                  <div class="fc-name" style="color:var(--yellow)">⚠ False Negative (FN)</div>
+                  <div class="fc-desc">Traffic <strong>thực sự là Attack</strong> nhưng model báo NORMAL.<br><em>Bỏ sót — nguy hiểm nhất! Hệ thống không phản ứng kịp.</em></div>
+                </div>
+                <div class="feat-card" style="border-color:rgba(34,197,94,.3);">
+                  <div class="fc-name" style="color:var(--green)">✓ True Positive (TP)</div>
+                  <div class="fc-desc">Traffic <strong>thực sự là Attack</strong> và model dự đoán ATTACK.<br><em>Tốt — phát hiện đúng tấn công.</em></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div><!-- end mtr-results -->
+    </div><!-- end tab-metrics -->
+
+  </div><!-- end content -->
+</div><!-- end layout -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Step definitions ──────────────────────────────────────────────────────
+const STEPS = [
+  { ico:'📡', title:'IoT Device — Raw Data Stream', step:'Bước 1/7',
+    desc:`<strong>IoT device</strong> (cảm biến mạng, nhiệt độ…) liên tục phát sinh dữ liệu thô.<br><br>Mỗi timestep = 1 hàng gồm <strong>n_features</strong> giá trị (CICIoT: 5, Intel: 4).<br><br>Dữ liệu chưa chuẩn hóa, có thể có outlier và noise.`,
+    vis:`<div class="dp-vis-t">Ví dụ 1 hàng CICIoT</div>
+<div class="cl">flow_duration : 1.24</div><div class="cl">Rate          : 47.3</div>
+<div class="cl">Number        : 12</div><div class="cl">IAT           : 0.021</div>
+<div class="cl">Tot size      : 580</div>
+<div style="margin-top:6px;font-size:9px;color:var(--muted)">→ 1 timestep = vector 5 chiều</div>`},
+  { ico:'🔢', title:'Pre-processing — Scale & Sliding Window', step:'Bước 2/7',
+    desc:`<strong>MaxAbsScaler</strong> (chỉ fit trên normal) chuẩn hóa mỗi feature về <strong>[-1, 1]</strong>.<br><br><strong>Sliding window W=64</strong>: nhóm 64 timestep liên tiếp → tensor shape <strong>(64, n_features)</strong>.<br><br>Mỗi bước trượt 1 row. Tổng 46.7M rows → ~46M windows.`,
+    vis:`<div class="dp-vis-t">Dimensions</div>
+<div class="df"><div class="db" style="color:var(--muted)">Rows (N×5)</div><div style="color:var(--muted)">→</div>
+<div class="db" style="color:var(--blue)">Scale [-1,1]</div><div style="color:var(--muted)">→</div>
+<div class="db" style="color:var(--green)">Window (64×5)</div></div>
+<div style="margin-top:8px;font-size:9px;color:var(--muted)">320 giá trị vào encoder mỗi window</div>`},
+  { ico:'🧠', title:'GRU Encoder — Nén thông tin', step:'Bước 3/7',
+    desc:`<strong>GRU</strong> xử lý chuỗi 64 timestep theo thứ tự thời gian.<br><br>2 layer GRU (128 units) học temporal pattern: nhịp điệu, tốc độ thay đổi.<br><br>Hidden state cuối → Linear → <strong>32-dim bottleneck z</strong> (Tanh activation).`,
+    vis:`<div class="dp-vis-t">Encoder</div>
+<div class="df" style="flex-direction:column;gap:3px">
+<div class="db" style="color:var(--blue)">Input (64×5) = 320</div>
+<div style="color:var(--muted);font-size:9px">↓ GRU Layer 1 (128)</div>
+<div class="db" style="color:var(--blue)">Hidden (64×128)</div>
+<div style="color:var(--muted);font-size:9px">↓ GRU Layer 2 (128)</div>
+<div class="db" style="color:var(--blue)">Last state (128,)</div>
+<div style="color:var(--muted);font-size:9px">↓ Linear + Tanh</div>
+<div class="db" style="color:var(--green);border-color:var(--green)">z (32,) ← bottleneck</div></div>`},
+  { ico:'💎', title:'Semantic Vector — Truyền qua mạng', step:'Bước 4/7',
+    desc:`<strong>32-dim vector z</strong> = bản tóm tắt ngữ nghĩa của 64 timestep.<br><br>Gateway chỉ truyền <strong>32 giá trị</strong> thay vì 320 gốc → <strong>90% tiết kiệm băng thông</strong>.<br><br>Normal traffic → vector ổn định. Attack → vector lệch xa phân phối.`,
+    vis:`<div class="dp-vis-t">Bandwidth so sánh</div>
+<div style="margin-bottom:5px"><div style="font-size:9px;color:var(--muted)">Không nén (320 floats = 1280B)</div>
+<div style="background:#2d0f0f;height:12px;border-radius:2px;width:100%;margin-top:2px;
+display:flex;align-items:center;padding:0 5px;font-size:8px;color:var(--red)">████████████████████</div></div>
+<div><div style="font-size:9px;color:var(--muted)">Semantic (32 floats = 128B)</div>
+<div style="background:#0f2010;height:12px;border-radius:2px;width:10%;margin-top:2px;
+display:flex;align-items:center;padding:0 4px;font-size:8px;color:var(--green)">██</div></div>
+<div style="font-size:11px;color:var(--purple);font-weight:700;margin-top:6px">→ 90% tiết kiệm</div>`},
+  { ico:'🔄', title:'GRU Decoder — Tái tạo lại', step:'Bước 5/7',
+    desc:`Decoder nhận <strong>z (32-dim)</strong>, tái tạo lại chuỗi 64 timestep.<br><br>Chỉ train trên normal → reconstruct chính xác traffic bình thường.<br><br>Gặp attack → không biết cách reconstruct → <strong>MSE cao</strong>.`,
+    vis:`<div class="dp-vis-t">Decoder</div>
+<div class="df" style="flex-direction:column;gap:3px">
+<div class="db" style="color:var(--green)">z (32,)</div>
+<div style="color:var(--muted);font-size:9px">↓ Repeat 64×</div>
+<div class="db" style="color:var(--blue)">(64×32)</div>
+<div style="color:var(--muted);font-size:9px">↓ GRU × 2 (128)</div>
+<div class="db" style="color:var(--blue)">Hidden (64×128)</div>
+<div style="color:var(--muted);font-size:9px">↓ Linear</div>
+<div class="db" style="color:var(--cyan)">x̂ (64×5) = 320 reconstructed</div></div>`},
+  { ico:'📊', title:'Threshold — Phân ngưỡng bất thường', step:'Bước 6/7',
+    desc:`<strong>MSE(x, x̂)</strong> = mean squared error giữa input gốc và reconstruction.<br><br>Threshold θ = <strong>percentile 99</strong> của MSE trên validation normal.<br>CICIoT θ ≈ 0.018 &nbsp;|&nbsp; Intel θ ≈ 0.022<br><br>error > θ → <strong>ATTACK</strong>. 1% FP, 100% Recall.`,
+    vis:`<div class="dp-vis-t">Decision</div>
+<div style="margin-top:4px"><canvas id="dp-th-ch" height="65"></canvas></div>
+<div style="margin-top:5px;font-size:9px;display:flex;gap:10px">
+<span style="color:var(--blue)">■ Normal</span>
+<span style="color:var(--red)">■ Attack</span>
+<span style="color:var(--yellow)">— θ</span></div>`},
+  { ico:'🚨', title:'Alert — Phân loại & Log', step:'Bước 7/7',
+    desc:`Kết quả: <strong>NORMAL</strong> hoặc <strong>ATTACK</strong>.<br><br>Gateway ghi log JSONL, publish MQTT topic <code>/alerts</code>, cập nhật dashboard realtime.<br><br>Tốc độ: <strong>~205 windows/sec</strong> trên CPU (~5ms/window).`,
+    vis:`<div class="dp-vis-t">Output</div>
+<div class="cl">label  : "ATTACK"</div>
+<div class="cl">error  : 0.08743</div>
+<div class="cl">thresh : 0.01820</div>
+<div class="cl">z[0..3]: [0.12,-0.45,…]</div>
+<div class="cl">time   : 2025-04-24T…</div>
+<div style="margin-top:5px;font-size:9px;color:var(--muted)">~205 windows/sec CPU</div>`},
+];
+
+// ── State ─────────────────────────────────────────────────────────────────
+let curDs='ciciot', selFile=null, errCh=null, semCh=null;
+let reconNChart=null, reconAChart=null;
+let activeStep=-1;
+let liveDs='ciciot', liveES=null, liveRunning=false;
+let liveBuf=[], liveStats={tot:0,nrm:0,atk:0,maxLoop:0};
+let liveChart=null, liveTimer=null, rateTimer=null, rateCount=0;
+let conCnt=0;
+
+const FEATS={ciciot:'flow_duration, Rate, Number, IAT, Tot size',intel:'temperature, humidity, light, voltage'};
+
+// ── Init ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded',()=>{setDs('ciciot');setupDrag();checkApi();});
+
+function checkApi(){
+  const base=document.getElementById('api-url').value.trim();
+  fetch(`${base}/info/${curDs}`,{signal:AbortSignal.timeout(2000)})
+    .then(r=>r.ok?r.json():null).then(d=>{
+      if(d){
+        document.getElementById('thresh-v').textContent=d.threshold.toFixed(6);
+        document.getElementById('sdot').className='sdot dok';
+        document.getElementById('stxt').textContent='API online ✓';
+      } else apiOff();
+    }).catch(apiOff);
+}
+function apiOff(){
+  document.getElementById('sdot').className='sdot doff';
+  document.getElementById('stxt').textContent='API offline';
+}
+
+function setDs(d){
+  curDs=d;
+  document.getElementById('dc').classList.toggle('active',d==='ciciot');
+  document.getElementById('di').classList.toggle('active',d==='intel');
+  document.getElementById('col-hint').textContent=FEATS[d]+', label (optional)';
+  selFile=null; document.getElementById('fname').textContent='';
+  document.getElementById('run-btn').disabled=true;
+  document.getElementById('run-btn').style.opacity='0.4';
+  // Intel has no attack-only demo CSV
+  document.getElementById('scen-a').style.display=d==='intel'?'none':'';
+  document.getElementById('expect-banner').style.display='none';
+  checkApi();
+}
+
+function switchTab(name, el){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+
+// ── Pipeline steps ────────────────────────────────────────────────────────
+function selStep(i){
+  const dp=document.getElementById('dp');
+  if(activeStep===i){closeDP();return;}
+  activeStep=i;
+  for(let j=0;j<7;j++) document.getElementById('s'+j).classList.toggle('sel',j===i);
+  const s=STEPS[i];
+  document.getElementById('dp-ic').textContent=s.ico;
+  document.getElementById('dp-ti').textContent=s.title;
+  document.getElementById('dp-st').textContent=s.step;
+  document.getElementById('dp-desc').innerHTML=s.desc;
+  document.getElementById('dp-vis').innerHTML='<div class="dp-vis-t">Visual</div>'+s.vis;
+  dp.classList.add('open');
+  if(i===5) setTimeout(drawThreshChart,60);
+}
+function closeDP(){
+  activeStep=-1;
+  document.getElementById('dp').classList.remove('open');
+  for(let j=0;j<7;j++) document.getElementById('s'+j).classList.remove('sel');
+}
+function drawThreshChart(){
+  const cv=document.getElementById('dp-th-ch'); if(!cv)return;
+  const rng=()=>Math.random();
+  const normal=Array.from({length:40},()=>0.002+rng()*0.012);
+  const attack=Array.from({length:20},()=>0.025+rng()*0.07);
+  const all=[...normal,...attack];
+  const clrs=[...normal.map(()=>'rgba(79,142,247,.6)'),...attack.map(()=>'rgba(239,68,68,.6)')];
+  if(window._dpc) window._dpc.destroy();
+  window._dpc=new Chart(cv.getContext('2d'),{
+    type:'bar',data:{labels:all.map(()=>''),datasets:[
+      {data:all,backgroundColor:clrs,borderWidth:0,barPercentage:1,categoryPercentage:1},
+      {data:Array(all.length).fill(0.018),type:'line',borderColor:'#f59e0b',borderWidth:2,pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,animation:{duration:300},plugins:{legend:{display:false}},
+      scales:{x:{display:false},y:{ticks:{color:'#94a3b8',font:{size:8}},grid:{color:'#1e2235'}}}}
+  });
+}
+
+// ── Upload tab ─────────────────────────────────────────────────────────────
+function setupDrag(){
+  const z=document.getElementById('upz');
+  z.addEventListener('dragover',e=>{e.preventDefault();z.classList.add('drag');});
+  z.addEventListener('dragleave',()=>z.classList.remove('drag'));
+  z.addEventListener('drop',e=>{e.preventDefault();z.classList.remove('drag');
+    const f=e.dataTransfer.files[0]; if(f){selFile=f;document.getElementById('fname').textContent='✓ '+f.name;const rb=document.getElementById('run-btn');rb.disabled=false;rb.style.opacity='1';rb.style.cursor='pointer';}
+  });
+}
+function onFile(inp){
+  if(inp.files[0]){selFile=inp.files[0];document.getElementById('fname').textContent='✓ '+selFile.name;const rb=document.getElementById('run-btn');rb.disabled=false;rb.style.opacity='1';rb.style.cursor='pointer';}
+}
+async function demoData(){
+  const base=document.getElementById('api-url').value.trim();
+  setBar(20);
+  try{
+    const r=await fetch(`${base}/sample/${curDs}?n=300`); if(!r.ok) throw new Error();
+    const blob=await r.blob();
+    selFile=new File([blob],curDs+'_demo.csv',{type:'text/csv'});
+    document.getElementById('fname').textContent='✓ '+curDs+'_demo.csv (300 rows)';
+    const rb=document.getElementById('run-btn');rb.disabled=false;rb.style.opacity='1';rb.style.cursor='pointer';
+    toast('ok','⚡ Demo data sẵn sàng — nhấn Run Detection');
+  }catch{toast('err','⚠ API chưa chạy: python scripts/serve_api.py');}
+  setBar(0);
+}
+
+// ── Scenario quick-load ────────────────────────────────────────────────────
+const SCENARIO_META = {
+  normal: { banner:'eb-nrm', msg:'Expected: ~100% NORMAL — model nhận ra traffic bình thường' },
+  attack: { banner:'eb-atk', msg:'Expected: ~100% ATTACK — model phát hiện toàn bộ tấn công' },
+  mixed:  { banner:'eb-mix', msg:'Expected: ~70% NORMAL + ~30% ATTACK — hỗn hợp thực tế' },
+};
+
+async function demoScenario(scenario){
+  const base=document.getElementById('api-url').value.trim();
+  setBar(15);
+  // Update expected result banner
+  const meta=SCENARIO_META[scenario]||{};
+  const eb=document.getElementById('expect-banner');
+  eb.className='expect-banner '+(meta.banner||'eb-mix');
+  eb.textContent=meta.msg||'';
+  eb.style.display='';
+  try{
+    const r=await fetch(`${base}/demo-csv/${curDs}/${scenario}`);
+    if(!r.ok){
+      const err=await r.json().catch(()=>({detail:'Demo CSV not found'}));
+      toast('err','⚠ '+err.detail+' — Run: python scripts/make_demo_csvs.py');
+      setBar(0); return;
+    }
+    const blob=await r.blob();
+    const fname=`${curDs}_${scenario}.csv`;
+    selFile=new File([blob],fname,{type:'text/csv'});
+    document.getElementById('fname').textContent='✓ '+fname;
+    const rb=document.getElementById('run-btn');
+    rb.disabled=false; rb.style.opacity='1'; rb.style.cursor='pointer';
+    setBar(100); setTimeout(()=>setBar(0),300);
+    toast('ok',`✓ ${scenario} loaded — nhấn ▶ Run Detection`);
+  }catch(e){setBar(0);toast('err','⚠ '+e.message);}
+}
+
+const STEP_D=600;
+const ANIM_TOTAL=(7-1)*STEP_D; // 3600ms — last pipeline step fires at index 6
+async function runUpload(){
+  if(!selFile)return;
+  const base=document.getElementById('api-url').value.trim();
+  const animStart=Date.now();
+  animPipe(); setBar(15);
+  document.getElementById('recon-section').style.display='none';
+  try{
+    const form=new FormData(); form.append('file',selFile); form.append('dataset',curDs);
+    const resp=await fetch(`${base}/detect/csv`,{method:'POST',body:form});
+    setBar(85);
+    if(!resp.ok){const e=await resp.json();throw new Error(e.detail||'');}
+    const data=await resp.json();
+    // Wait for animation to finish before showing results
+    const remaining=Math.max(0, ANIM_TOTAL-(Date.now()-animStart));
+    await new Promise(r=>setTimeout(r,remaining));
+    setBar(100); setTimeout(()=>setBar(0),500);
+    renderUpload(data);
+    toast('ok',`✓ ${data.total_windows} windows · ${data.n_attack} attacks`);
+  }catch(e){setBar(0);toast('err','⚠ '+e.message);}
+}
+
+function animPipe(){
+  for(let i=0;i<7;i++) document.getElementById('s'+i).className='ps';
+  for(let i=0;i<6;i++) document.getElementById('a'+i).className='pa';
+  STEPS.forEach((_,i)=>{
+    setTimeout(()=>{
+      if(i>0){document.getElementById('s'+(i-1)).classList.remove('active');document.getElementById('s'+(i-1)).classList.add('done');document.getElementById('a'+(i-1)).classList.add('lit');}
+      const el=document.getElementById('s'+i);
+      el.classList.add(i===6?'flash':'active');
+    },i*STEP_D);
+  });
+}
+
+function renderUpload(data){
+  document.getElementById('empty-up').style.display='none';
+  const res=document.getElementById('up-results'); res.style.display='flex';
+  const tot=data.total_windows;
+  document.getElementById('ut').textContent=tot.toLocaleString();
+  document.getElementById('un').textContent=data.n_normal.toLocaleString();
+  document.getElementById('ua').textContent=data.n_attack.toLocaleString();
+  document.getElementById('uth').textContent=data.threshold.toFixed(5);
+  document.getElementById('unp').textContent=(data.n_normal/tot*100).toFixed(1)+'%';
+  document.getElementById('uap').textContent=(data.n_attack/tot*100).toFixed(1)+'%';
+  document.getElementById('thresh-v').textContent=data.threshold.toFixed(6);
+  const samp=data.results.length<=400?data.results:data.results.filter((_,i)=>i%Math.ceil(data.results.length/400)===0);
+  renderErrChart(samp,data.threshold);
+  renderSem(data.results[data.results.length-1].semantic_vector);
+  renderRecon(data.recon_examples);
+  renderTable(data.results);
+}
+
+function renderErrChart(samp,th){
+  if(errCh) errCh.destroy();
+  errCh=new Chart(document.getElementById('err-ch').getContext('2d'),{
+    type:'bar',data:{labels:samp.map(r=>r.window_id),datasets:[
+      {label:'Error',data:samp.map(r=>r.reconstruction_error),
+       backgroundColor:samp.map(r=>r.label==='ATTACK'?'rgba(239,68,68,.75)':'rgba(79,142,247,.5)'),borderWidth:0,barPercentage:1,categoryPercentage:1},
+      {label:`θ=${th.toFixed(4)}`,data:Array(samp.length).fill(th),type:'line',
+       borderColor:'#f59e0b',borderWidth:2,borderDash:[4,3],pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,animation:{duration:500},plugins:{legend:{labels:{color:'#94a3b8',font:{size:9}}}},
+      scales:{x:{display:false},y:{ticks:{color:'#94a3b8',font:{size:9}},grid:{color:'#1e2235'}}}}
+  });
+}
+function renderSem(vec){
+  if(!vec)return;
+  const mx=Math.max(...vec.map(Math.abs),0.01);
+  const w=document.getElementById('sem-b'); w.innerHTML='';
+  vec.forEach(v=>{const b=document.createElement('div');b.className='sb';
+    b.style.height=Math.max(Math.abs(v)/mx*100,3)+'%';
+    b.style.background=v>=0?'rgba(168,85,247,.7)':'rgba(232,121,249,.7)';w.appendChild(b);});
+  if(semCh) semCh.destroy();
+  semCh=new Chart(document.getElementById('sem-ch').getContext('2d'),{
+    type:'bar',data:{labels:vec.map((_,i)=>i+1),datasets:[{data:vec,
+      backgroundColor:vec.map(v=>v>=0?'rgba(168,85,247,.7)':'rgba(232,121,249,.7)'),borderWidth:0}]},
+    options:{responsive:true,animation:{duration:300},plugins:{legend:{display:false}},
+      scales:{x:{display:false},y:{ticks:{color:'#94a3b8',font:{size:8}},grid:{color:'#1e2235'}}}}
+  });
+}
+function renderTable(all){
+  const show=all.slice(0,500);
+  document.getElementById('tcnt').textContent=`${show.length} / ${all.length} windows`;
+  document.getElementById('tbody').innerHTML=show.map(r=>{
+    const pct=((r.reconstruction_error/r.threshold-1)*100).toFixed(1);
+    const vs=r.reconstruction_error>r.threshold?`<span class="r">+${pct}%▲</span>`:`<span class="g">${Math.abs(pct)}%▼</span>`;
+    const bd=r.label==='ATTACK'?'<span class="lb la">⚠ ATTACK</span>':'<span class="lb ln">✓ NORMAL</span>';
+    const tl=r.true_label?`<span style="font-size:9px;color:var(--muted)">${r.true_label}</span>`:'—';
+    const sem=r.semantic_vector.slice(0,8).map(v=>v.toFixed(2)).join(', ');
+    return `<tr class="${r.label==='ATTACK'?'atk':''}"><td style="color:var(--muted)">${r.window_id}</td><td>${bd}</td>
+    <td style="font-family:monospace">${r.reconstruction_error.toFixed(5)}</td><td>${vs}</td><td>${tl}</td>
+    <td style="font-family:monospace;font-size:9px;color:var(--muted)">[${sem}…]</td></tr>`;
+  }).join('');
+}
+
+// ── Reconstruction visualization ──────────────────────────────────────────
+function renderRecon(recon){
+  if(!recon||(recon.normal==null&&recon.attack==null))return;
+  document.getElementById('recon-section').style.display='';
+
+  if(recon.normal){
+    document.getElementById('recon-n-id').textContent=recon.normal.window_id;
+    document.getElementById('recon-n-err').textContent=recon.normal.error.toFixed(5);
+    document.getElementById('recon-n-card').style.display='';
+    if(reconNChart){reconNChart.destroy();reconNChart=null;}
+    reconNChart=drawReconChart('recon-n-ch',recon.normal,false);
+  }
+  if(recon.attack){
+    document.getElementById('recon-a-id').textContent=recon.attack.window_id;
+    document.getElementById('recon-a-err').textContent=recon.attack.error.toFixed(5);
+    document.getElementById('recon-a-card').style.display='';
+    if(reconAChart){reconAChart.destroy();reconAChart=null;}
+    reconAChart=drawReconChart('recon-a-ch',recon.attack,true);
+  }
+}
+
+function drawReconChart(canvasId, data, isAttack){
+  const cv=document.getElementById(canvasId);
+  const seq=data.input_scaled.length;
+  const labels=Array.from({length:seq},(_,i)=>i);
+  // Use mean across all features for a clean single-line signal
+  const inp=data.input_scaled.map(row=>row.reduce((s,v)=>s+v,0)/row.length);
+  const rec=data.reconstructed_scaled.map(row=>row.reduce((s,v)=>s+v,0)/row.length);
+  const reconColor=isAttack?'rgba(239,68,68,0.9)':'rgba(34,197,94,0.9)';
+  return new Chart(cv.getContext('2d'),{
+    type:'line',
+    data:{labels,datasets:[
+      {label:'Input',data:inp,borderColor:'rgba(79,142,247,0.85)',borderWidth:1.5,
+       pointRadius:0,fill:false,tension:0.2},
+      {label:'Reconstructed',data:rec,borderColor:reconColor,borderWidth:1.5,
+       pointRadius:0,fill:false,tension:0.2,
+       borderDash:isAttack?[5,3]:[]}
+    ]},
+    options:{responsive:true,animation:{duration:400},
+      plugins:{legend:{labels:{color:'#94a3b8',font:{size:9},boxWidth:18}}},
+      scales:{x:{display:false},
+        y:{ticks:{color:'#94a3b8',font:{size:8}},grid:{color:'#1e2235'}}}}
+  });
+}
+
+// ── LIVE TAB ──────────────────────────────────────────────────────────────
+function setLiveDs(d){
+  liveDs=d;
+  document.getElementById('ld-c').classList.toggle('active',d==='ciciot');
+  document.getElementById('ld-i').classList.toggle('active',d==='intel');
+  document.getElementById('ld-m').classList.toggle('active',d==='mixed');
+}
+
+function startLive(){
+  const base=document.getElementById('api-url').value.trim();
+  const speed=document.getElementById('speed-sl').value;
+  const url=liveDs==='mixed'?`${base}/stream/mixed?speed=${speed}`:`${base}/stream/${liveDs}?speed=${speed}`;
+  if(liveES){liveES.close();liveES=null;}
+
+  liveES=new EventSource(url);
+  liveES.onmessage=e=>{handleLive(JSON.parse(e.data));};
+  liveES.onerror=()=>{
+    document.getElementById('live-ind').classList.remove('on');
+    if(liveRunning) toast('err','⚠ Stream disconnected. API offline?');
+    liveRunning=false;
+    document.getElementById('lstart').style.display='';
+    document.getElementById('lstop').style.display='none';
+  };
+
+  liveRunning=true;
+  document.getElementById('live-ind').classList.add('on');
+  document.getElementById('lstart').style.display='none';
+  document.getElementById('lstop').style.display='';
+
+  // chart update loop
+  if(liveChart) liveChart.destroy();
+  liveChart=new Chart(document.getElementById('live-ch').getContext('2d'),{
+    type:'bar',data:{labels:[],datasets:[
+      {label:'Error',data:[],backgroundColor:[],borderWidth:0,barPercentage:1,categoryPercentage:1},
+      {label:'θ',data:[],type:'line',borderColor:'#f59e0b',borderWidth:1.5,borderDash:[3,2],pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,animation:false,plugins:{legend:{display:false}},
+      scales:{x:{display:false},y:{ticks:{color:'#94a3b8',font:{size:8}},grid:{color:'#1e2235'}}}}
+  });
+
+  liveTimer=setInterval(flushLiveChart,150);
+  rateTimer=setInterval(updateRate,1000); rateCount=0;
+}
+
+function stopLive(){
+  if(liveES){liveES.close();liveES=null;}
+  clearInterval(liveTimer); clearInterval(rateTimer);
+  liveRunning=false;
+  document.getElementById('live-ind').classList.remove('on');
+  document.getElementById('lstart').style.display='';
+  document.getElementById('lstop').style.display='none';
+}
+
+function resetLive(){
+  stopLive();
+  liveStats={tot:0,nrm:0,atk:0,maxLoop:0};liveBuf=[];rateCount=0;conCnt=0;
+  document.getElementById('ls-tot').textContent='0';
+  document.getElementById('ls-nrm').textContent='0';
+  document.getElementById('ls-atk').textContent='0';
+  document.getElementById('ls-rate').textContent='0/s';
+  document.getElementById('ls-loop').textContent='×0';
+  document.getElementById('console').innerHTML='';
+  document.getElementById('console-cnt').textContent='0 entries';
+  if(liveChart){liveChart.destroy();liveChart=null;}
+}
+
+const MAX_BUF=80, MAX_LOG=300;
+
+function handleLive(r){
+  liveStats.tot++;
+  if(r.label==='ATTACK') liveStats.atk++;
+  else liveStats.nrm++;
+  if(r.loop>liveStats.maxLoop) liveStats.maxLoop=r.loop;
+  rateCount++;
+
+  // Update stats display
+  document.getElementById('ls-tot').textContent=liveStats.tot.toLocaleString();
+  document.getElementById('ls-nrm').textContent=liveStats.nrm.toLocaleString();
+  document.getElementById('ls-atk').textContent=liveStats.atk.toLocaleString();
+  document.getElementById('ls-loop').textContent='×'+liveStats.maxLoop;
+
+  // Buffer for chart
+  liveBuf.push(r);
+  if(liveBuf.length>MAX_BUF) liveBuf.shift();
+
+  // Console log
+  addConsoleRow(r);
+}
+
+function flushLiveChart(){
+  if(!liveChart||!liveBuf.length)return;
+  const ds=liveChart.data.datasets;
+  ds[0].data  = liveBuf.map(r=>r.reconstruction_error);
+  ds[0].backgroundColor = liveBuf.map(r=>r.label==='ATTACK'?'rgba(239,68,68,.8)':'rgba(79,142,247,.5)');
+  ds[1].data  = liveBuf.map(r=>r.threshold);
+  liveChart.data.labels = liveBuf.map(r=>r.window_id);
+  liveChart.update('none');
+}
+
+function updateRate(){
+  document.getElementById('ls-rate').textContent=rateCount+'/s';
+  rateCount=0;
+}
+
+function addConsoleRow(r){
+  const con=document.getElementById('console');
+  const now=new Date(); const ts=now.toTimeString().slice(0,8)+'.'+String(now.getMilliseconds()).padStart(3,'0');
+  const ds=r.dataset||liveDs;
+  const isAtk=r.label==='ATTACK';
+  const pct=Math.min((r.reconstruction_error/r.threshold)*100,200);
+  const barW=Math.min(pct,100).toFixed(0);
+  const barColor=isAtk?'var(--red)':'var(--blue)';
+  const tl=r.true_label?` <span style="color:var(--muted);font-size:9px">(${r.true_label})</span>`:'';
+
+  const row=document.createElement('div'); row.className='clog';
+  row.innerHTML=
+    `<span class="cl-time">${ts}</span>`+
+    `<span class="cl-id">#${String(r.window_id).padStart(4,'0')}</span>`+
+    `<span class="cl-ds ${ds==='ciciot'?'ciciot':'intel'}">[${ds==='ciciot'?'CICIoT':'Intel '}]</span>`+
+    `<span class="cl-lbl ${isAtk?'atk':'nrm'}">${isAtk?'⚠ ATTACK ':'✓ NORMAL '}</span>`+
+    `<span class="cl-err">e=${r.reconstruction_error.toFixed(5)}  θ=${r.threshold.toFixed(5)}</span>`+
+    `<div class="cl-bar"><div class="cl-barfill" style="width:${barW}%;background:${barColor}"></div></div>`+
+    tl;
+
+  con.appendChild(row);
+  conCnt++;
+
+  // Keep max MAX_LOG rows
+  while(con.children.length>MAX_LOG) con.removeChild(con.firstChild);
+  document.getElementById('console-cnt').textContent=conCnt.toLocaleString()+' entries';
+
+  // Auto-scroll
+  if(document.getElementById('autoscroll').checked){
+    con.scrollTop=con.scrollHeight;
+  }
+}
+
+function clearConsole(){
+  document.getElementById('console').innerHTML='';
+  conCnt=0; document.getElementById('console-cnt').textContent='0 entries';
+}
+
+// ── METRICS TAB ───────────────────────────────────────────────────────────
+let mtrData = {}, mtrErrCh = null, mtrCurDs = 'ciciot';
+
+function setMtrDs(d, el) {
+  mtrCurDs = d;
+  document.getElementById('md-c').classList.toggle('active', d === 'ciciot');
+  document.getElementById('md-i').classList.toggle('active', d === 'intel');
+  if (mtrData[d]) renderMetrics(mtrData[d]);
+}
+
+async function runMetrics() {
+  const base = document.getElementById('api-url').value.trim();
+  const btn  = document.getElementById('mtr-run-btn');
+  btn.disabled = true; btn.textContent = '⏳ Đang tính...';
+  document.getElementById('mtr-status').textContent = 'Đang chạy inference...';
+  document.getElementById('mtr-empty').style.display = 'flex';
+  document.getElementById('mtr-results').style.display = 'none';
+
+  try {
+    const [rc, ri] = await Promise.all([
+      fetch(`${base}/metrics/ciciot`).then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail); })),
+      fetch(`${base}/metrics/intel`).then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail); })),
+    ]);
+    mtrData = { ciciot: rc, intel: ri };
+    document.getElementById('mtr-status').textContent =
+      `CICIoT: ${rc.elapsed_sec}s · Intel: ${ri.elapsed_sec}s`;
+    document.getElementById('mtr-empty').style.display = 'none';
+    document.getElementById('mtr-results').style.display = 'flex';
+    renderMetrics(mtrData[mtrCurDs]);
+    toast('ok', `✓ Evaluation xong — CICIoT AUC=${rc.auc_roc} · Intel AUC=${ri.auc_roc}`);
+  } catch(e) {
+    document.getElementById('mtr-status').textContent = '⚠ ' + e.message;
+    toast('err', '⚠ ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = '▶ Chạy Đánh Giá';
+}
+
+function renderMetrics(d) {
+  if (!d) return;
+  const pct = v => (v * 100).toFixed(1) + '%';
+  const fmtThresh = v => v < 0.01 ? v.toFixed(6) : v.toFixed(4);
+
+  // Metric strip
+  const strip = [
+    { l: 'AUC-ROC',    v: d.auc_roc.toFixed(4),       s: 'Phân biệt N/A',      c: d.auc_roc >= 0.99 ? 'g' : d.auc_roc >= 0.95 ? 'y' : 'r' },
+    { l: 'Accuracy',   v: pct(d.accuracy),             s: '% đúng tổng thể',    c: d.accuracy >= 0.99 ? 'g' : 'y' },
+    { l: 'Precision',  v: pct(d.precision),            s: 'Ít False Alarm',     c: d.precision >= 0.95 ? 'g' : 'y' },
+    { l: 'Recall',     v: pct(d.recall),               s: 'Ít bỏ sót Attack',   c: d.recall >= 0.99 ? 'g' : d.recall >= 0.95 ? 'y' : 'r' },
+    { l: 'F1-Score',   v: d.f1.toFixed(4),             s: 'Tổng hợp P+R',       c: d.f1 >= 0.99 ? 'g' : 'y' },
+  ];
+  document.getElementById('mtr-strip').innerHTML = strip.map(s =>
+    `<div class="mtr-sc">
+       <div class="mtr-sc-l">${s.l}</div>
+       <div class="mtr-sc-v ${s.c}">${s.v}</div>
+       <div class="mtr-sc-s">${s.s}</div>
+     </div>`
+  ).join('');
+
+  // Confusion matrix
+  const cm = d.confusion_matrix;
+  document.getElementById('cm-tn-v').textContent = cm.TN.toLocaleString();
+  document.getElementById('cm-fp-v').textContent = cm.FP.toLocaleString();
+  document.getElementById('cm-fn-v').textContent = cm.FN.toLocaleString();
+  document.getElementById('cm-tp-v').textContent = cm.TP.toLocaleString();
+  document.getElementById('mtr-cm-n').textContent =
+    `n=${d.n_normal_windows} normal · ${d.n_attack_windows} attack windows`;
+
+  // Error distribution chart
+  try {
+  if (mtrErrCh) { mtrErrCh.destroy(); mtrErrCh = null; }
+  const ne = d.error_samples.normal;
+  const ae = d.error_samples.attack;
+  const thresh = d.threshold;
+  // Build scatter datasets
+  const normPts = ne.map((v, i) => ({ x: i, y: v }));
+  const atkPts  = ae.map((v, i) => ({ x: ne.length + i, y: v }));
+  const thLine  = [{ x: 0, y: thresh }, { x: ne.length + ae.length, y: thresh }];
+  mtrErrCh = new Chart(document.getElementById('mtr-err-ch').getContext('2d'), {
+    type: 'scatter',
+    data: {
+      datasets: [
+        { type: 'scatter', label: 'Normal', data: normPts,
+          backgroundColor: 'rgba(79,142,247,0.5)', pointRadius: 2.5, pointHoverRadius: 4 },
+        { type: 'scatter', label: 'Attack', data: atkPts,
+          backgroundColor: 'rgba(239,68,68,0.6)', pointRadius: 2.5, pointHoverRadius: 4 },
+        { type: 'line', label: `θ=${fmtThresh(thresh)}`, data: thLine,
+          borderColor: '#f59e0b', borderWidth: 1.5, borderDash: [5, 3],
+          pointRadius: 0, fill: false },
+      ]
+    },
+    options: {
+      responsive: true, animation: { duration: 400 },
+      plugins: { legend: { labels: { color: '#94a3b8', font: { size: 9 }, boxWidth: 14 } } },
+      scales: {
+        x: { display: false },
+        y: { ticks: { color: '#94a3b8', font: { size: 8 } }, grid: { color: '#1e2235' } }
+      }
+    }
+  });
+  } catch(chartErr) { console.warn('mtr chart:', chartErr); }
+
+  // Per-attack bars (CICIoT only)
+  const pa = d.per_attack;
+  const paDiv = document.getElementById('mtr-perattack');
+  if (pa && pa.length) {
+    paDiv.style.display = '';
+    const body = document.getElementById('mtr-pa-body');
+    body.innerHTML = pa.map(p => {
+      const w = (p.recall * 100).toFixed(0);
+      const c = p.recall >= 0.99 ? '#22c55e' : p.recall >= 0.9 ? '#f59e0b' : '#ef4444';
+      return `<div class="pa-bar-wrap">
+        <div class="pa-lbl" title="${p.label}">${p.label}</div>
+        <div class="pa-bar">
+          <div class="pa-fill" style="width:${w}%;background:${c};">
+            <span class="pa-val">${w}%</span>
+          </div>
+        </div>
+        <div style="font-size:9px;color:var(--muted);flex-shrink:0;min-width:40px">n=${p.n}</div>
+      </div>`;
+    }).join('');
+  } else {
+    paDiv.style.display = 'none';
+  }
+}
+
+let expOpen = false;
+function toggleExplain() {
+  expOpen = !expOpen;
+  document.getElementById('exp-body').style.display = expOpen ? 'flex' : 'none';
+  document.getElementById('exp-arrow').textContent = expOpen ? '▲' : '▼';
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────
+function setBar(p){
+  const f=document.getElementById('rfill');
+  f.style.transition=p===0?'none':'width .3s';
+  f.style.width=p+'%';
+}
+function toast(type,msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className=`toast ${type} show`;
+  setTimeout(()=>t.classList.remove('show'),4500);
+}
+</script>
+</body>
+</html>
