@@ -1,9 +1,14 @@
+# Large raw datasets (13+ GB — never commit)
 data/raw/
-data/processed/
-saved_models/
+
+# Runtime logs
 logs/
+
+# Generated figures (re-run generate_figures.py)
+docs/figures/
+
+# Python artifacts
 __pycache__/
 *.pyc
-*.pkl
 .ipynb_checkpoints/
 .env

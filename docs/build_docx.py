@@ -115,6 +115,9 @@ def add_md_to_docx(doc, md_path):
                             p.add_run(it_part)
 
 def main():
+    # Change to the directory of the script so relative paths (like the .md file and images) work correctly
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    
     base_docx = r"D:\Sen_Claude\Report_NgoHoangHuy_EEEEIU21019.docx"
     doc = docx.Document(base_docx)
     
