@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.inference.detector import AnomalyDetector
+from src.inference.onnx_detector import OnnxAnomalyDetector
 
 app = FastAPI(
     title="IoT Anomaly Detection API",
@@ -44,7 +44,7 @@ if os.path.isdir(_docs_dir):
     app.mount("/static", StaticFiles(directory=_docs_dir), name="static")
 
 # Detector instances — loaded at startup
-_detectors: dict[str, AnomalyDetector] = {}
+_detectors: dict[str, OnnxAnomalyDetector] = {}
 
 
 # ── Request / Response schemas ────────────────────────────────────────────────
@@ -111,15 +111,10 @@ def load_models():
             print(f"  [skip] {dataset}: model or threshold not found at {model_path}")
             continue  # skip if not trained yet
 
-        _detectors[dataset] = AnomalyDetector(
+        _detectors[dataset] = OnnxAnomalyDetector(
             model_path=model_path,
             scaler_path=scaler_path,
             threshold_path=threshold_path,
-            input_size=len(features),
-            hidden_size=mcfg["hidden_size"],
-            bottleneck_size=mcfg["bottleneck_size"],
-            seq_len=mcfg["window_size"],
-            num_layers=mcfg["num_layers"],
         )
     print(f"Loaded detectors: {list(_detectors.keys())}")
 
@@ -279,7 +274,6 @@ async def detect_csv(
     n_windows = n - W + 1
 
     # ── Batch inference (single forward pass for all windows) ─────────────
-    import torch
     data_scaled = det.scaler.transform(data)                   # (n, F)
     # Sliding windows via stride tricks — no data copy until batch
     shape   = (n_windows, W, data_scaled.shape[1])
@@ -293,16 +287,14 @@ async def detect_csv(
     all_z:      list = []
     all_x_hat:  list = []  # keep only for recon examples
 
-    with torch.no_grad():
-        for s in range(0, n_windows, BATCH):
-            b = torch.tensor(wins_scaled[s:s+BATCH].copy(), dtype=torch.float32).to(det.device)
-            z    = det.model.encode(b)
-            xhat = det.model.decode(z)
-            errs = ((b - xhat) ** 2).mean(dim=(1, 2)).cpu().numpy()
-            all_errors.append(errs)
-            all_z.append(z.cpu().numpy())
-            # store reconstructions only for the best/worst candidates
-            all_x_hat.append(xhat.cpu().numpy())
+    for s in range(0, n_windows, BATCH):
+        batch_np = wins_scaled[s:s+BATCH].copy().astype(np.float32)
+        z, xhat  = det.run_batch(batch_np)
+        errs     = ((batch_np - xhat) ** 2).mean(axis=(1, 2))
+        all_errors.append(errs)
+        all_z.append(z)
+        # store reconstructions only for the best/worst candidates
+        all_x_hat.append(xhat)
 
     errors_np = np.concatenate(all_errors)        # (n_windows,)
     z_np      = np.concatenate(all_z)             # (n_windows, bottleneck)

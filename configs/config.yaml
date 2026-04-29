@@ -41,9 +41,9 @@ threshold:
   intel_percentile: 99.5
 
 saved_models:
-  ciciot_model: saved_models/ciciot_model.pt
+  ciciot_model: saved_models/ciciot_model.onnx
   ciciot_threshold: saved_models/ciciot_threshold.json
-  intel_model: saved_models/intel_model.pt
+  intel_model: saved_models/intel_model.onnx
   intel_threshold: saved_models/intel_threshold.json
 
 gateway:
