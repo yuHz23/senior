@@ -1,0 +1,31 @@
+# Raw datasets - too large
+data/raw/
+
+# PyTorch model weights - only ONNX needed on Vercel
+saved_models/*.pt
+
+# Runtime logs
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Notebooks
+notebooks/
+
+# Docs (except demo.html served by API)
+docs/Report_*.docx
+docs/Report_*.md
+docs/*.py
+docs/report.html
+docs/learning_guide.html
+docs/iot_gateway_architecture_*.png
+docs/lstm_autoencoder_*.png
+docs/figures/
+
+# Dev/test files
+tests/
+scripts/
+requirements-dev.txt

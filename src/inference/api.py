@@ -221,7 +221,7 @@ def detect_batch(req: BatchWindowRequest):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_detector(dataset: str) -> AnomalyDetector:
+def _get_detector(dataset: str) -> OnnxAnomalyDetector:
     if dataset not in _detectors:
         raise HTTPException(
             status_code=404,
