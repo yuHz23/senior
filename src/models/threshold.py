@@ -1,10 +1,10 @@
 import json
 import os
 import numpy as np
-import torch
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import torch
     from src.models.lstm_autoencoder import GRUAutoencoder
 
 
@@ -20,6 +20,7 @@ def compute_threshold(
     Returns the `percentile`-th percentile of reconstruction errors on
     Normal data. Samples exceeding this value at inference are flagged ATTACK.
     """
+    import torch
     model.eval()
     errors = []
     with torch.no_grad():
