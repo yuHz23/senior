@@ -1,0 +1,12 @@
+# Same exclusions as .vercelignore for clean deploys
+data/raw/
+logs/
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.env
+notebooks/
+tests/
+scripts/
+requirements-dev.txt
