@@ -1,0 +1,1 @@
+{"type": "MaxAbsScaler", "n_features": 4, "features": ["temperature", "humidity", "light", "voltage"], "max_abs_": [99.98580169677734, 64.83000183105469, 1847.3599853515625, 3.1591498851776123]}

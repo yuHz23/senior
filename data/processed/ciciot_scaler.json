@@ -1,0 +1,1 @@
+{"type": "MaxAbsScaler", "n_features": 5, "features": ["flow_duration", "Rate", "Number", "IAT", "Tot size"], "max_abs_": [1124.9637451171875, 1782583.25, 15.0, 166526368.0, 13583.0]}

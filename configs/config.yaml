@@ -2,7 +2,7 @@ data:
   ciciot:
     raw_path: data/raw/ciciot.csv
     processed_dir: data/processed/ciciot
-    scaler_path: data/processed/ciciot_scaler.pkl
+    scaler_path: data/processed/ciciot_scaler.json
     features:
       - flow_duration
       - Rate
@@ -14,7 +14,7 @@ data:
   intel:
     raw_path: data/raw/intel_berkeley.csv
     processed_dir: data/processed/intel
-    scaler_path: data/processed/intel_scaler.pkl
+    scaler_path: data/processed/intel_scaler.json
     features:
       - temperature
       - humidity

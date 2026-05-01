@@ -16,7 +16,7 @@ import io
 import asyncio
 import json as _json
 import numpy as np
-import pandas as pd
+import csv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -190,10 +190,13 @@ def sample_data(dataset: str, n: int = 200):
         raise HTTPException(status_code=404, detail=f"Unknown dataset: {dataset}")
 
     idx = rng.permutation(n)
-    df = pd.DataFrame(data[idx], columns=cols)
-    df["label"] = np.array(label)[idx]
+    rows_shuffled = data[idx]
+    labels_shuffled = np.array(label)[idx]
     buf = io.StringIO()
-    df.to_csv(buf, index=False)
+    writer = csv.writer(buf)
+    writer.writerow(cols + ["label"])
+    for row, lbl in zip(rows_shuffled, labels_shuffled):
+        writer.writerow(list(row) + [lbl])
     return StreamingResponse(
         io.BytesIO(buf.getvalue().encode()),
         media_type="text/csv",
@@ -248,11 +251,15 @@ async def detect_csv(
 
     content = await file.read()
     try:
-        df = pd.read_csv(io.BytesIO(content))
+        reader = csv.DictReader(io.StringIO(content.decode("utf-8", errors="replace")))
+        rows = list(reader)
+        if not rows:
+            raise ValueError("Empty CSV")
+        header = list(rows[0].keys())
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Cannot parse CSV: {e}")
 
-    missing = [c for c in features if c not in df.columns]
+    missing = [c for c in features if c not in header]
     if missing:
         raise HTTPException(
             status_code=422,
@@ -260,13 +267,21 @@ async def detect_csv(
         )
 
     label_col = cfg["data"][dataset].get("label_col")
-    # Auto-detect label column even when config has label_col: null
-    if not label_col and "label" in df.columns:
+    if not label_col and "label" in header:
         label_col = "label"
-    has_labels = bool(label_col and label_col in df.columns)
+    has_labels = bool(label_col and label_col in header)
 
-    data = df[features].ffill().fillna(0.0).values.astype(np.float32)
-    labels = df[label_col].tolist() if has_labels else None
+    data = []
+    labels_raw = []
+    for row in rows:
+        try:
+            data.append([float(row.get(f, 0) or 0) for f in features])
+            if has_labels:
+                labels_raw.append(row[label_col])
+        except (ValueError, TypeError):
+            continue
+    data = np.array(data, dtype=np.float32)
+    labels = labels_raw if has_labels else None
     n = len(data)
     if n < W:
         raise HTTPException(status_code=422, detail=f"Need at least {W} rows, got {n}")
