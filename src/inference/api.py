@@ -117,6 +117,12 @@ def load_models():
             threshold_path=threshold_path,
         )
     print(f"Loaded detectors: {list(_detectors.keys())}")
+    # Pre-warm stream cache at startup so /batch and /stream don't time out
+    for ds in list(_detectors.keys()):
+        try:
+            _ensure_stream_data(ds)
+        except Exception as e:
+            print(f"  [startup] stream pre-warm failed for {ds}: {e}")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -567,7 +573,8 @@ def _ensure_stream_data(dataset: str):
         det = _detectors[dataset]
         buf   = WindowBuffer(window_size=W)
         errs  = []
-        for i in range(min(150, len(normal_scaled))):
+        # Use 50 windows max for fast recalibration on serverless
+        for i in range(min(50, len(normal_scaled))):
             w = buf.push(normal_scaled[i])
             if w is not None:
                 r = det.detect_scaled(w)
@@ -575,7 +582,7 @@ def _ensure_stream_data(dataset: str):
         if errs:
             new_threshold = float(np.percentile(errs, 99.0))
             det.threshold = new_threshold
-            print(f"  [stream:{dataset}] ONNX threshold recalibrated: {new_threshold:.6f} (max err={max(errs):.6f})")
+            print(f"  [stream:{dataset}] ONNX threshold recalibrated: {new_threshold:.6f} (n={len(errs)}, max={max(errs):.6f})")
 
     # ── 5. Interleave 4 normals : 1 attack ────────────────────────────────
     rows, labs = [], []
