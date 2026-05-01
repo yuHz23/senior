@@ -532,13 +532,36 @@ def _ensure_stream_data(dataset: str):
     # Fallback: small perturbation (enough to push error above threshold)
     if attack_scaled is None:
         base_atk = normal_scaled[:n_attack_want].copy()
-        # Add perturbation that pushes reconstruction error well above ~0.003 threshold
         perturb  = rng.uniform(0.5, 1.5, (n_attack_want, n_feat)).astype(np.float32)
         sign     = rng.choice([-1.0, 1.0], (n_attack_want, n_feat)).astype(np.float32)
         attack_scaled = base_atk + perturb * sign
         print(f"  [stream:{dataset}] WARNING: using synthetic perturbation for attacks")
 
-    # ── 4. Interleave 4 normals : 1 attack ────────────────────────────────
+    # Tile arrays if we don't have enough rows
+    if len(normal_scaled) < n_normal_want:
+        reps = (n_normal_want // len(normal_scaled)) + 1
+        normal_scaled = np.tile(normal_scaled, (reps, 1))[:n_normal_want]
+    if len(attack_scaled) < n_attack_want:
+        reps = (n_attack_want // len(attack_scaled)) + 1
+        attack_scaled = np.tile(attack_scaled, (reps, 1))[:n_attack_want]
+
+    # ── 4. Recalibrate threshold using ONNX model on real normal data ────
+    # PyTorch threshold ≠ ONNX threshold → need to compute from ONNX errors
+    if dataset in _detectors and normal_scaled is not None:
+        det = _detectors[dataset]
+        buf   = WindowBuffer(window_size=W)
+        errs  = []
+        for i in range(min(150, len(normal_scaled))):
+            w = buf.push(normal_scaled[i])
+            if w is not None:
+                r = det.detect_scaled(w)
+                errs.append(r["reconstruction_error"])
+        if errs:
+            new_threshold = float(np.percentile(errs, 99.0))
+            det.threshold = new_threshold
+            print(f"  [stream:{dataset}] ONNX threshold recalibrated: {new_threshold:.6f} (max err={max(errs):.6f})")
+
+    # ── 5. Interleave 4 normals : 1 attack ────────────────────────────────
     rows, labs = [], []
     ni = ai = 0
     while ni < n_normal_want or ai < n_attack_want:
