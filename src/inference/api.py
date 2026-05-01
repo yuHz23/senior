@@ -438,7 +438,8 @@ def get_demo_csv(dataset: str, scenario: str):
 
 # ── Streaming (SSE) ───────────────────────────────────────────────────────────
 
-_stream_cache: dict = {}   # dataset -> {windows: np.ndarray, labels: list}
+_stream_cache: dict = {}       # dataset -> {windows: np.ndarray, labels: list}
+_stream_counters: dict = {}    # dataset -> next batch offset (for /batch)
 
 
 def _ensure_stream_data(dataset: str):
@@ -649,30 +650,31 @@ async def stream_mixed(speed: float = 5.0):
 
 @app.get("/stream/{dataset}")
 async def stream_dataset(dataset: str, speed: float = 5.0):
-    """Stream detection results for a single dataset as SSE."""
+    """Stream detection results for a single dataset as SSE.
+
+    On Vercel Serverless, SSE is not supported — falls back to
+    a 5-event batch that the client polls via /batch/{dataset}.
+    """
     det = _get_detector(dataset)
     _ensure_stream_data(dataset)
     data  = _stream_cache[dataset]
     delay = max(1.0 / float(speed), 0.02)
 
+    # Vercel kills SSE connections immediately — use batch polling instead
+    # Return a small batch of events as SSE so EventSource gets at least something
     async def generate():
-        idx = 0
-        loop_n = 0
-        try:
-            while True:
-                r = det.detect_scaled(data["windows"][idx])
-                r["window_id"]  = idx
-                r["loop"]       = loop_n
-                r["dataset"]    = dataset
-                r["true_label"] = data["labels"][idx]
-                yield f"data: {_json.dumps(r)}\n\n"
-                await asyncio.sleep(delay)
-                idx += 1
-                if idx >= len(data["windows"]):
-                    idx = 0
-                    loop_n += 1
-        except asyncio.CancelledError:
-            pass
+        idx = _stream_counters.get(dataset, 0)
+        total = len(data["windows"])
+        batch_size = min(10, total)
+        for _ in range(batch_size):
+            r = det.detect_scaled(data["windows"][idx % total])
+            r["window_id"]  = idx % total
+            r["loop"]       = idx // total
+            r["dataset"]    = dataset
+            r["true_label"] = data["labels"][idx % total]
+            yield f"data: {_json.dumps(r)}\n\n"
+            idx += 1
+        _stream_counters[dataset] = idx
 
     return StreamingResponse(
         generate(),
@@ -680,6 +682,37 @@ async def stream_dataset(dataset: str, speed: float = 5.0):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
                  "Connection": "keep-alive"},
     )
+
+
+@app.get("/batch/{dataset}")
+async def batch_dataset(dataset: str, n: int = 10, offset: int = -1):
+    """Return a batch of detection results as JSON (use for polling on Vercel).
+
+    Client polls this every second instead of using EventSource.
+    """
+    det = _get_detector(dataset)
+    _ensure_stream_data(dataset)
+    data  = _stream_cache[dataset]
+    total = len(data["windows"])
+    n     = min(n, 50)  # cap at 50
+
+    if offset < 0:
+        offset = _stream_counters.get(dataset, 0)
+
+    results = []
+    for i in range(n):
+        idx = (offset + i) % total
+        r   = det.detect_scaled(data["windows"][idx])
+        r["window_id"]  = idx
+        r["loop"]       = (offset + i) // total
+        r["dataset"]    = dataset
+        r["true_label"] = data["labels"][idx]
+        results.append(r)
+
+    next_offset = offset + n
+    _stream_counters[dataset] = next_offset
+
+    return {"results": results, "next_offset": next_offset, "total": total}
 
 
 def _validate_window(window: np.ndarray, dataset: str):

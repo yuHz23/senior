@@ -862,7 +862,7 @@ display:flex;align-items:center;padding:0 4px;font-size:8px;color:var(--green)">
 let curDs='ciciot', selFile=null, errCh=null, semCh=null;
 let reconNChart=null, reconAChart=null;
 let activeStep=-1;
-let liveDs='ciciot', liveES=null, liveRunning=false;
+let liveDs='ciciot', liveES=null, liveRunning=false, livePollTimer=null, liveNextOffset=-1;
 let liveBuf=[], liveStats={tot:0,nrm:0,atk:0,maxLoop:0};
 let liveChart=null, liveTimer=null, rateTimer=null, rateCount=0;
 let conCnt=0;
@@ -1159,21 +1159,35 @@ function setLiveDs(d){
   document.getElementById('ld-m').classList.toggle('active',d==='mixed');
 }
 
+async function _pollBatch(base, speed){
+  if(!liveRunning) return;
+  const ds=liveDs==='mixed'?'ciciot':liveDs;
+  const n=Math.max(5, Math.min(20, Math.round(parseFloat(speed))));
+  const url=liveNextOffset>=0
+    ? `${base}/batch/${ds}?n=${n}&offset=${liveNextOffset}`
+    : `${base}/batch/${ds}?n=${n}`;
+  try{
+    const resp=await fetch(url);
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const data=await resp.json();
+    (data.results||[]).forEach(r=>handleLive(r));
+    liveNextOffset=data.next_offset;
+  } catch(err){
+    if(liveRunning) toast('err','⚠ Polling error: '+err.message);
+  }
+}
+
 function startLive(){
   const base=document.getElementById('api-url').value.trim();
   const speed=document.getElementById('speed-sl').value;
-  const url=liveDs==='mixed'?`${base}/stream/mixed?speed=${speed}`:`${base}/stream/${liveDs}?speed=${speed}`;
   if(liveES){liveES.close();liveES=null;}
+  if(livePollTimer){clearInterval(livePollTimer);livePollTimer=null;}
+  liveNextOffset=-1;
 
-  liveES=new EventSource(url);
-  liveES.onmessage=e=>{handleLive(JSON.parse(e.data));};
-  liveES.onerror=()=>{
-    document.getElementById('live-ind').classList.remove('on');
-    if(liveRunning) toast('err','⚠ Stream disconnected. API offline?');
-    liveRunning=false;
-    document.getElementById('lstart').style.display='';
-    document.getElementById('lstop').style.display='none';
-  };
+  // Use polling (/batch) instead of SSE — works on both Vercel and localhost
+  const intervalMs=Math.max(500, Math.round(1000/Math.max(1,parseFloat(speed))));
+  _pollBatch(base, speed); // first call immediately
+  livePollTimer=setInterval(()=>_pollBatch(base,speed), intervalMs);
 
   liveRunning=true;
   document.getElementById('live-ind').classList.add('on');
@@ -1197,8 +1211,10 @@ function startLive(){
 
 function stopLive(){
   if(liveES){liveES.close();liveES=null;}
+  if(livePollTimer){clearInterval(livePollTimer);livePollTimer=null;}
   clearInterval(liveTimer); clearInterval(rateTimer);
   liveRunning=false;
+  liveNextOffset=-1;
   document.getElementById('live-ind').classList.remove('on');
   document.getElementById('lstart').style.display='';
   document.getElementById('lstop').style.display='none';
