@@ -568,17 +568,16 @@ def _ensure_stream_data(dataset: str):
         attack_scaled = np.tile(attack_scaled, (reps, 1))[:n_attack_want]
 
     # ── 4. Recalibrate threshold using ONNX model on real normal data ────
-    # PyTorch threshold ≠ ONNX threshold → need to compute from ONNX errors
-    if dataset in _detectors and normal_scaled is not None:
+    # Use sliding windows directly (no WindowBuffer needed):
+    # each window is normal_scaled[i : i+W], err computed via detect_scaled
+    if dataset in _detectors and normal_scaled is not None and len(normal_scaled) >= W:
         det = _detectors[dataset]
-        buf   = WindowBuffer(window_size=W)
         errs  = []
-        # Use 50 windows max for fast recalibration on serverless
-        for i in range(min(50, len(normal_scaled))):
-            w = buf.push(normal_scaled[i])
-            if w is not None:
-                r = det.detect_scaled(w)
-                errs.append(r["reconstruction_error"])
+        # Sample up to 50 windows from normal data (step 2 to speed up)
+        for i in range(0, min(len(normal_scaled) - W + 1, W * 2), 2):
+            window = normal_scaled[i : i + W].astype(np.float32)
+            r = det.detect_scaled(window)
+            errs.append(r["reconstruction_error"])
         if errs:
             new_threshold = float(np.percentile(errs, 99.0))
             det.threshold = new_threshold
@@ -708,9 +707,33 @@ async def batch_dataset(dataset: str, n: int = 10, offset: int = -1):
         total = len(data["windows"])
         n     = min(n, 50)  # cap at 50
 
-        # Use threshold stored in cache (recalibrated from ONNX model on startup)
+        # Apply cached recalibrated threshold from _ensure_stream_data
         if data.get("threshold") is not None:
             det.threshold = data["threshold"]
+        elif offset <= 0:
+            # Cold start: recalibrate threshold now using first normal windows
+            from src.data.preprocessor import WindowBuffer as WB
+            W2 = _cfg_cache()[dataset].get("window_size", 64) if hasattr(_cfg_cache, '__call__') else 64
+            buf2 = WB(window_size=64)
+            errs2 = []
+            for j in range(min(50, total)):
+                lbl = data["labels"][j]
+                if lbl == "Normal":
+                    w2 = buf2.push(data["windows"][j][-1])  # last row of window
+                    if w2 is None:
+                        pass
+            # simpler: use detect_scaled on first normal windows
+            for j in range(min(total, 200)):
+                if data["labels"][j] == "Normal":
+                    r2 = det.detect_scaled(data["windows"][j])
+                    errs2.append(r2["reconstruction_error"])
+                    if len(errs2) >= 50:
+                        break
+            if errs2:
+                new_t = float(np.percentile(errs2, 99.0))
+                det.threshold = new_t
+                data["threshold"] = new_t
+                print(f"  [batch:{dataset}] threshold recalibrated on-demand: {new_t:.6f}")
 
         if offset < 0:
             offset = _stream_counters.get(dataset, 0)
