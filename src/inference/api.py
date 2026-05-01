@@ -472,7 +472,7 @@ def _ensure_stream_data(dataset: str):
     label_col  = dcfg.get("label_col")
     normal_lbl = dcfg.get("normal_label", "Normal")
 
-    from src.data.preprocessor import load_scaler
+    from src.data.preprocessor import load_scaler, WindowBuffer
     scaler = load_scaler(absp(dcfg["scaler_path"]))
 
     rng           = np.random.default_rng(42)
@@ -604,9 +604,13 @@ def _ensure_stream_data(dataset: str):
         windows.append(all_scaled[i : i + W])
         win_labels.append(str(all_labels[i + W - 1]))
 
+    # Store recalibrated threshold in cache (survives request boundary)
+    # Vercel cold-starts reset _detectors → threshold reverts to JSON value
+    cached_threshold = _detectors[dataset].threshold if dataset in _detectors else None
     _stream_cache[dataset] = {
-        "windows": np.array(windows, dtype=np.float32),
-        "labels":  win_labels,
+        "windows":   np.array(windows, dtype=np.float32),
+        "labels":    win_labels,
+        "threshold": cached_threshold,
     }
     print(f"  [stream:{dataset}] {len(windows)} windows ready "
           f"(~{labs.count('Normal')} normal rows, ~{labs.count('Attack')} attack rows)")
@@ -697,29 +701,37 @@ async def batch_dataset(dataset: str, n: int = 10, offset: int = -1):
 
     Client polls this every second instead of using EventSource.
     """
-    det = _get_detector(dataset)
-    _ensure_stream_data(dataset)
-    data  = _stream_cache[dataset]
-    total = len(data["windows"])
-    n     = min(n, 50)  # cap at 50
+    try:
+        det = _get_detector(dataset)
+        _ensure_stream_data(dataset)
+        data  = _stream_cache[dataset]
+        total = len(data["windows"])
+        n     = min(n, 50)  # cap at 50
 
-    if offset < 0:
-        offset = _stream_counters.get(dataset, 0)
+        # Use threshold stored in cache (recalibrated from ONNX model on startup)
+        if data.get("threshold") is not None:
+            det.threshold = data["threshold"]
 
-    results = []
-    for i in range(n):
-        idx = (offset + i) % total
-        r   = det.detect_scaled(data["windows"][idx])
-        r["window_id"]  = idx
-        r["loop"]       = (offset + i) // total
-        r["dataset"]    = dataset
-        r["true_label"] = data["labels"][idx]
-        results.append(r)
+        if offset < 0:
+            offset = _stream_counters.get(dataset, 0)
 
-    next_offset = offset + n
-    _stream_counters[dataset] = next_offset
+        results = []
+        for i in range(n):
+            idx = (offset + i) % total
+            r   = det.detect_scaled(data["windows"][idx])
+            r["window_id"]  = idx
+            r["loop"]       = (offset + i) // total
+            r["dataset"]    = dataset
+            r["true_label"] = data["labels"][idx]
+            results.append(r)
 
-    return {"results": results, "next_offset": next_offset, "total": total}
+        next_offset = offset + n
+        _stream_counters[dataset] = next_offset
+
+        return {"results": results, "next_offset": next_offset, "total": total}
+    except Exception as exc:
+        import traceback
+        return {"error": str(exc), "traceback": traceback.format_exc()}
 
 
 def _validate_window(window: np.ndarray, dataset: str):
