@@ -567,52 +567,39 @@ def _ensure_stream_data(dataset: str):
         reps = (n_attack_want // len(attack_scaled)) + 1
         attack_scaled = np.tile(attack_scaled, (reps, 1))[:n_attack_want]
 
-    # ── 4. Recalibrate threshold using ONNX model on real normal data ────
-    # Use sliding windows directly (no WindowBuffer needed):
-    # each window is normal_scaled[i : i+W], err computed via detect_scaled
-    if dataset in _detectors and normal_scaled is not None and len(normal_scaled) >= W:
-        det = _detectors[dataset]
-        errs  = []
-        # Sample up to 50 windows from normal data (step 2 to speed up)
-        for i in range(0, min(len(normal_scaled) - W + 1, W * 2), 2):
-            window = normal_scaled[i : i + W].astype(np.float32)
-            r = det.detect_scaled(window)
-            errs.append(r["reconstruction_error"])
-        if errs:
-            new_threshold = float(np.percentile(errs, 99.0))
-            det.threshold = new_threshold
-            print(f"  [stream:{dataset}] ONNX threshold recalibrated: {new_threshold:.6f} (n={len(errs)}, max={max(errs):.6f})")
+    # ── 4. Build SEPARATE pure-normal and pure-attack windows ────────────
+    # Do NOT interleave rows before sliding — boundary windows would mix
+    # normal+attack rows → reconstruction error spikes → false ATTACK labels.
+    # Instead: build pure windows from each segment, then interleave at the
+    # window level so the live stream still shows realistic 4:1 ratio.
+    def _make_windows(scaled: np.ndarray) -> list:
+        out = []
+        for i in range(len(scaled) - W + 1):
+            out.append(scaled[i : i + W])
+        return out
 
-    # ── 5. Interleave 4 normals : 1 attack ────────────────────────────────
-    rows, labs = [], []
-    ni = ai = 0
-    while ni < n_normal_want or ai < n_attack_want:
-        for _ in range(4):
-            if ni < n_normal_want:
-                rows.append(normal_scaled[ni]); labs.append("Normal"); ni += 1
-        if ai < n_attack_want:
-            rows.append(attack_scaled[ai]); labs.append("Attack"); ai += 1
+    normal_wins = _make_windows(normal_scaled)
+    attack_wins = _make_windows(attack_scaled)
 
-    all_scaled = np.array(rows, dtype=np.float32)
-    all_labels = np.array(labs)
-
-    # ── 5. Sliding windows ────────────────────────────────────────────────
-    n = len(all_scaled)
+    # ── 5. Interleave at WINDOW level: 4 normals : 1 attack ──────────────
     windows, win_labels = [], []
-    for i in range(n - W + 1):
-        windows.append(all_scaled[i : i + W])
-        win_labels.append(str(all_labels[i + W - 1]))
+    ni = ai = 0
+    n_nw, n_aw = len(normal_wins), len(attack_wins)
+    while ni < n_nw or ai < n_aw:
+        for _ in range(4):
+            if ni < n_nw:
+                windows.append(normal_wins[ni]); win_labels.append("Normal"); ni += 1
+        if ai < n_aw:
+            windows.append(attack_wins[ai]); win_labels.append("Attack"); ai += 1
 
-    # Store recalibrated threshold in cache (survives request boundary)
-    # Vercel cold-starts reset _detectors → threshold reverts to JSON value
-    cached_threshold = _detectors[dataset].threshold if dataset in _detectors else None
+    # Use trained threshold from JSON; no runtime recalibration on demo data
     _stream_cache[dataset] = {
         "windows":   np.array(windows, dtype=np.float32),
         "labels":    win_labels,
-        "threshold": cached_threshold,
+        "threshold": None,
     }
     print(f"  [stream:{dataset}] {len(windows)} windows ready "
-          f"(~{labs.count('Normal')} normal rows, ~{labs.count('Attack')} attack rows)")
+          f"({ni} normal-windows, {ai} attack-windows, interleaved 4:1)")
 
 
 @app.get("/stream/mixed")
@@ -707,33 +694,7 @@ async def batch_dataset(dataset: str, n: int = 10, offset: int = -1):
         total = len(data["windows"])
         n     = min(n, 50)  # cap at 50
 
-        # Apply cached recalibrated threshold from _ensure_stream_data
-        if data.get("threshold") is not None:
-            det.threshold = data["threshold"]
-        elif offset <= 0:
-            # Cold start: recalibrate threshold now using first normal windows
-            from src.data.preprocessor import WindowBuffer as WB
-            W2 = _cfg_cache()[dataset].get("window_size", 64) if hasattr(_cfg_cache, '__call__') else 64
-            buf2 = WB(window_size=64)
-            errs2 = []
-            for j in range(min(50, total)):
-                lbl = data["labels"][j]
-                if lbl == "Normal":
-                    w2 = buf2.push(data["windows"][j][-1])  # last row of window
-                    if w2 is None:
-                        pass
-            # simpler: use detect_scaled on first normal windows
-            for j in range(min(total, 200)):
-                if data["labels"][j] == "Normal":
-                    r2 = det.detect_scaled(data["windows"][j])
-                    errs2.append(r2["reconstruction_error"])
-                    if len(errs2) >= 50:
-                        break
-            if errs2:
-                new_t = float(np.percentile(errs2, 99.0))
-                det.threshold = new_t
-                data["threshold"] = new_t
-                print(f"  [batch:{dataset}] threshold recalibrated on-demand: {new_t:.6f}")
+        # Use trained threshold from JSON (loaded at startup); no runtime override
 
         if offset < 0:
             offset = _stream_counters.get(dataset, 0)
