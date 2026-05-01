@@ -459,82 +459,82 @@ def _ensure_stream_data(dataset: str):
 
     # ── 1. Load real normal rows from CSV (try demo CSV first, then raw) ──
     normal_scaled = None
-    # Try lightweight demo CSVs first (always available in repo)
     demo_paths = [
         os.path.join(_root, "data", "demo", f"{dataset}_normal.csv"),
         os.path.join(_root, "data", "demo", f"{dataset}_mixed.csv"),
-        absp(dcfg["raw_path"]),  # full raw CSV (only on local dev)
+        absp(dcfg["raw_path"]),
     ]
+
+    def _load_csv_rows(csv_path, filter_normal=True):
+        """Load rows from CSV using standard csv (no pandas dependency)."""
+        import csv
+        rows, seen_cols = [], []
+        with open(csv_path, "r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                if len(rows) >= (n_normal_want if filter_normal else n_attack_want):
+                    break
+                # Check label
+                if label_col and label_col in row:
+                    lbl = row[label_col]
+                    if filter_normal and lbl != normal_lbl:
+                        continue
+                    if not filter_normal and lbl == normal_lbl:
+                        continue
+                # Parse features
+                try:
+                    vals = [float(row.get(f, "0") or "0") for f in features]
+                except (ValueError, TypeError):
+                    continue
+                rows.append(vals)
+        return np.array(rows, dtype=np.float32) if rows else None
+
     for csv_path in demo_paths:
         if not os.path.exists(csv_path):
             continue
         try:
-            use_cols = features + ([label_col] if label_col else [])
-            available_cols = pd.read_csv(csv_path, nrows=0).columns.tolist()
-            use_cols = [c for c in use_cols if c in available_cols]
-            collected = []
-            for chunk in pd.read_csv(csv_path, usecols=use_cols, chunksize=5000):
-                if label_col and label_col in chunk.columns:
-                    chunk = chunk[chunk[label_col] == normal_lbl]
-                if len(chunk) > 0:
-                    collected.append(chunk[features].ffill().fillna(0))
-                if sum(len(c) for c in collected) >= n_normal_want:
-                    break
-            if not collected:
-                continue
-            df_norm = pd.concat(collected).head(n_normal_want)
-            if len(df_norm) >= W + 10:
-                normal_scaled = scaler.transform(df_norm.values.astype(np.float32))
-                print(f"  [stream:{dataset}] {len(df_norm)} real normal rows loaded from {os.path.basename(csv_path)}")
+            arr = _load_csv_rows(csv_path, filter_normal=True)
+            if arr is not None and len(arr) >= W + 10:
+                normal_scaled = scaler.transform(arr[:n_normal_want])
+                print(f"  [stream:{dataset}] {len(arr)} real normal rows loaded from {os.path.basename(csv_path)}")
                 break
         except Exception as e:
             print(f"  [stream:{dataset}] CSV load failed for {os.path.basename(csv_path)}: {e}")
             continue
 
-    # ── 2. Smooth-sine fallback (has temporal structure → lower MSE than noise) ──
+    # ── 2. Smooth-sine fallback (low amplitude to match scaled distribution) ──
     if normal_scaled is None or len(normal_scaled) < W + 10:
         t    = np.linspace(0, 6 * np.pi, n_normal_want)
-        base = np.column_stack([0.06 * np.sin(t + i * 0.7) for i in range(n_feat)])
-        base = (base + rng.uniform(-0.005, 0.005, base.shape)).astype(np.float32)
+        # Small amplitude ~0.001 to match training reconstruction error 0.0006-0.003
+        base = np.column_stack([0.001 * np.sin(t + i * 0.7) for i in range(n_feat)])
+        base = (base + rng.uniform(-0.0003, 0.0003, base.shape)).astype(np.float32)
         normal_scaled = base
-        print(f"  [stream:{dataset}] WARNING: using sine-wave fallback for normals (no CSV found)")
+        print(f"  [stream:{dataset}] WARNING: using sine-wave fallback for normals")
 
     if len(normal_scaled) < n_normal_want:
         reps = (n_normal_want // len(normal_scaled)) + 1
         normal_scaled = np.tile(normal_scaled, (reps, 1))[:n_normal_want]
 
-    # ── 3. Attack = load real attack rows from CSV if available ────────────
+    # ── 3. Attack = load real attack rows from CSV ────────────
     attack_scaled = None
     for csv_path in demo_paths:
         if not os.path.exists(csv_path):
             continue
         try:
-            use_cols = features + ([label_col] if label_col else [])
-            available_cols = pd.read_csv(csv_path, nrows=0).columns.tolist()
-            use_cols = [c for c in use_cols if c in available_cols]
-            collected = []
-            for chunk in pd.read_csv(csv_path, usecols=use_cols, chunksize=5000):
-                if label_col and label_col in chunk.columns:
-                    chunk = chunk[chunk[label_col] != normal_lbl]  # attack rows only
-                if len(chunk) > 0:
-                    collected.append(chunk[features].ffill().fillna(0))
-                if sum(len(c) for c in collected) >= n_attack_want:
-                    break
-            if not collected:
-                continue
-            df_atk = pd.concat(collected).head(n_attack_want)
-            if len(df_atk) >= W + 10:
-                attack_scaled = scaler.transform(df_atk.values.astype(np.float32))
-                print(f"  [stream:{dataset}] {len(df_atk)} real attack rows loaded from {os.path.basename(csv_path)}")
+            arr = _load_csv_rows(csv_path, filter_normal=False)
+            if arr is not None and len(arr) >= W + 10:
+                attack_scaled = scaler.transform(arr[:n_attack_want])
+                print(f"  [stream:{dataset}] {len(arr)} real attack rows loaded from {os.path.basename(csv_path)}")
                 break
-        except Exception as e:
+        except Exception:
             continue
 
-    # Fallback: perturbation on normal data (guaranteed OOD / high error)
+    # Fallback: small perturbation (enough to push error above threshold)
     if attack_scaled is None:
-        base_atk    = normal_scaled[:n_attack_want].copy()
-        perturb     = rng.uniform(3.0, 6.0, (n_attack_want, n_feat)).astype(np.float32)
-        sign        = rng.choice([-1.0, 1.0], (n_attack_want, n_feat)).astype(np.float32)
+        base_atk = normal_scaled[:n_attack_want].copy()
+        # Add perturbation that pushes reconstruction error well above ~0.003 threshold
+        perturb  = rng.uniform(0.5, 1.5, (n_attack_want, n_feat)).astype(np.float32)
+        sign     = rng.choice([-1.0, 1.0], (n_attack_want, n_feat)).astype(np.float32)
         attack_scaled = base_atk + perturb * sign
         print(f"  [stream:{dataset}] WARNING: using synthetic perturbation for attacks")
 
